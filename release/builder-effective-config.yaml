@@ -1,8 +1,8 @@
 directories:
   output: release
   buildResources: build
-appId: zoo.grandemaison.editor
-productName: GRANDEMAISON Editor
+appId: zoo.grandemaison.gme
+productName: GME
 copyright: © 2026 Grandemaison
 files:
   - filter:
@@ -35,5 +35,5 @@ nsis:
   createDesktopShortcut: true
 publish:
   provider: generic
-  url: https://grandemaisonzoo.com/gm-editor/
+  url: https://grandemaisonzoo.com/gme/
 electronVersion: 42.0.1
