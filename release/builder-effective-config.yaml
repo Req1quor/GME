@@ -1,0 +1,39 @@
+directories:
+  output: release
+  buildResources: build
+appId: zoo.grandemaison.editor
+productName: GRANDEMAISON Editor
+copyright: © 2026 Grandemaison
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: public/icon.ico
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: public/icon.icns
+  category: public.app-category.graphics-design
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: public/icon.png
+  category: Graphics
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+publish:
+  provider: generic
+  url: https://grandemaisonzoo.com/gm-editor/
+electronVersion: 42.0.1
