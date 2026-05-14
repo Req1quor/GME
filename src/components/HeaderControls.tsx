@@ -20,7 +20,7 @@ export function HeaderControls() {
     return () => window.removeEventListener('keydown', handler);
   }, [liveMode, toggleLiveMode]);
 
-  if (!originalImage && appMode !== 'video') return null;
+  if (!originalImage && appMode !== 'video' && appMode !== 'webcam') return null;
 
   return (
     <>

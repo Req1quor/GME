@@ -157,22 +157,21 @@ export interface Preset {
 
 // ─── Media modes ──────────────────────────────────────────────────────────────
 
-export type AppMode = 'image' | 'video' | 'audio';
+export type AppMode = 'image' | 'video' | 'audio' | 'webcam';
 
-export type VizMode = 'bars' | 'waveform' | 'radial' | 'spectrogram';
+/** 6 visualizer modes, each with a distinct visual identity */
+export type VizMode = 'scope' | 'spectrum' | 'radial' | 'tunnel' | 'glitch' | 'chroma';
 
 export interface VisualizerParams {
   mode: VizMode;
-  barCount: number;    // 16–256
-  color: string;       // primary hex
-  color2: string;      // gradient end hex
-  bgColor: string;
-  gradient: boolean;
-  symmetric: boolean;  // mirror bars vertically
-  smooth: number;      // EMA factor 0.5–0.95
-  lineWidth: number;
-  glow: boolean;
-  glowSize: number;
-  fill: boolean;       // fill under waveform
-  scale: number;       // amplitude 0.5–2.0
+  color: string;       // primary accent color (hex)
+  color2: string;      // secondary color (gradient / chroma channels)
+  bgColor: string;     // background color (hex)
+  gain: number;        // amplitude multiplier 0.3–4.0
+  smooth: number;      // analyser.smoothingTimeConstant 0–0.95
+  lineWidth: number;   // stroke width 0.5–6
+  glow: boolean;       // bloom / shadowBlur
+  glowSize: number;    // blur radius 2–40
+  barCount: number;    // freq resolution for spectrum / radial 16–256
+  decay: number;       // trail persistence factor 0.03–0.5 (lower = longer trail)
 }

@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 
@@ -33,7 +33,7 @@ function createWindow() {
 
   if (isDev) {
     win.loadURL('http://localhost:5173');
-    // win.webContents.openDevTools(); // uncomment if needed
+    win.webContents.openDevTools();
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
@@ -51,6 +51,12 @@ if (!isDev) {
 }
 
 app.whenReady().then(() => {
+  // Allow camera/mic access from the renderer (getUserMedia)
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'media');
+  });
+  session.defaultSession.setDevicePermissionHandler(() => true);
+
   createWindow();
 
   // Auto-update (production only)

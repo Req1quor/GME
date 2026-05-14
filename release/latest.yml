@@ -1,8 +1,8 @@
-version: 1.0.4
+version: 1.0.5
 files:
-  - url: GME Setup 1.0.4.exe
-    sha512: arPYYyt6fK5UqlbtkMPmyyS80DP1MYDaougL/40Y9zd55aNH8SRVo495bq5P7HcqdzBzf589gLbTpNwD0fScHA==
-    size: 109770489
-path: GME Setup 1.0.4.exe
-sha512: arPYYyt6fK5UqlbtkMPmyyS80DP1MYDaougL/40Y9zd55aNH8SRVo495bq5P7HcqdzBzf589gLbTpNwD0fScHA==
-releaseDate: '2026-05-10T22:11:38.395Z'
+  - url: GME Setup 1.0.5.exe
+    sha512: xEdAxWsE0RksjZiHvhgUWlyRSR9LF8yMZPmLktqWvjvgGXbEdrg0ZgaRTiRqfYxBX/sThG/hwAmyT8VbPZt3vw==
+    size: 109773723
+path: GME Setup 1.0.5.exe
+sha512: xEdAxWsE0RksjZiHvhgUWlyRSR9LF8yMZPmLktqWvjvgGXbEdrg0ZgaRTiRqfYxBX/sThG/hwAmyT8VbPZt3vw==
+releaseDate: '2026-05-11T16:59:17.602Z'

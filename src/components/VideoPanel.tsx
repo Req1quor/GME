@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+﻿import { useRef, useState, useCallback, useEffect } from 'react';
 import { parseGIF, decompressFrames } from 'gifuct-js';
 import { useApp } from '../context';
 import { ExportModal } from './ExportModal';
@@ -9,6 +9,7 @@ export function VideoPanel() {
     processRawFrame, setDirectResult, setDirectSource,
     setAppMode, pendingVideoUrl, setPendingVideoUrl,
     processGPU, gpuReady, setCanvasSizeOnly,
+    effects, params, adjustments,
   } = useApp();
 
   const videoRef     = useRef<HTMLVideoElement>(null);
@@ -74,6 +75,37 @@ export function VideoPanel() {
     if (videoRef.current) videoRef.current.playbackRate = s;
   }, []);
 
+  // Keep isPlaying in a ref so the effects-change watcher can read it without re-subscribing
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+
+  // Render a single frame to canvas (used on seek/loadeddata while paused)
+  const drawSingleFrame = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
+    if (gpuReadyRef.current) {
+      processGPURef.current(video);
+    } else {
+      const tc = tempCanvas.current;
+      if (tc.width !== video.videoWidth || tc.height !== video.videoHeight) {
+        tc.width = video.videoWidth; tc.height = video.videoHeight;
+      }
+      const ctx2 = tc.getContext('2d', { willReadFrequently: true })!;
+      ctx2.drawImage(video, 0, 0);
+      const raw = ctx2.getImageData(0, 0, tc.width, tc.height);
+      const out = processRef.current(raw);
+      setDirectResult(out);
+      setDirectSource(raw, tc.width, tc.height);
+    }
+  }, [setDirectResult, setDirectSource]);
+
+  // Redraw when effects/params/adjustments change while video is paused
+  useEffect(() => {
+    if (!loaded || isPlayingRef.current || isGifRef.current) return;
+    drawSingleFrame();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effects, params, adjustments]);
+
   // Load video/gif from pendingVideoUrl
   useEffect(() => {
     if (!pendingVideoUrl) return;
@@ -114,19 +146,26 @@ export function VideoPanel() {
         playFrame();
       });
     } else {
+      const updateDuration = () => {
+        if (isFinite(video.duration) && video.duration > 0) setDuration(video.duration);
+      };
+      video.addEventListener('loadedmetadata', () => {
+        updateDuration();
+        setCanvasSizeOnly(video.videoWidth, video.videoHeight);
+      }, { once: true });
+      video.addEventListener('durationchange', updateDuration);
+      video.addEventListener('timeupdate', () => {
+        setCurrentTime(video.currentTime);
+        if (!isFinite(video.duration) === false && video.duration > 0) setDuration(video.duration);
+      });
       video.src = url;
       video.load();
       setLoaded(true);
-      video.addEventListener('loadedmetadata', () => {
-        setDuration(video.duration);
-        setCanvasSizeOnly(video.videoWidth, video.videoHeight);
-      }, { once: true });
-      video.addEventListener('timeupdate', () => setCurrentTime(video.currentTime));
       const drawLoop = () => {
         const now = performance.now();
         if (!video.paused && !video.ended && (now - lastFrameMs.current) >= frameIntervalMs.current) {
           if (gpuReadyRef.current) {
-            // Pass video element directly — no CPU readback, no getImageData
+            // Pass video element directly â€” no CPU readback, no getImageData
             const t0 = performance.now();
             processGPURef.current(video);
             const elapsed = performance.now() - t0;
@@ -134,7 +173,7 @@ export function VideoPanel() {
             frameIntervalMs.current = elapsed > 20 ? elapsed * 1.05 : 0;
             lastFrameMs.current = now;
           } else {
-            // CPU fallback — still needs pixel readback
+            // CPU fallback â€” still needs pixel readback
             const tc = tempCanvas.current;
             if (tc.width !== video.videoWidth || tc.height !== video.videoHeight) {
               tc.width = video.videoWidth; tc.height = video.videoHeight;
@@ -153,6 +192,7 @@ export function VideoPanel() {
       video.addEventListener('play', () => { setIsPlaying(true); rafRef.current = requestAnimationFrame(drawLoop); });
       video.addEventListener('pause', () => { setIsPlaying(false); cancelAnimationFrame(rafRef.current); });
       video.addEventListener('ended', () => setIsPlaying(false));
+      video.addEventListener('seeked', drawSingleFrame);
       video.loop = loop;
       video.play().catch(() => {});
     }
@@ -162,101 +202,104 @@ export function VideoPanel() {
 
 
   const fmt = (s: number) => isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '0:00';
-
+  const seekPct = (duration > 0 && isFinite(duration)) ? Math.min(100, currentTime / duration * 100) : 0;
 
   return (
-    <div className="video-panel">
+    <div className="vph">
       <video ref={videoRef} style={{ display: 'none' }} playsInline loop={loop} />
 
-      {!loaded ? null : (
-        <div className="video-controls">
-          {!isGifRef.current && (
-            <div className="video-seek-row">
-              <span className="video-time-label">{fmt(currentTime)}</span>
-              <input
-                type="range" className="video-seek"
-                min={0} max={duration || 1} step={0.033}
-                value={currentTime}
-                onChange={e => seek(Number(e.target.value))}
-              />
-              <span className="video-time-label">{fmt(duration)}</span>
-            </div>
-          )}
+      {/* LEFT — transport + speed */}
+      <div className="vph-left">
+        <button className="vph-btn" onClick={isPlaying ? pause : play} title={isPlaying ? 'Pause' : 'Lecture'}>
+          {isPlaying
+            ? <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><rect x="3" y="2" width="3.5" height="12" rx="1"/><rect x="9.5" y="2" width="3.5" height="12" rx="1"/></svg>
+            : <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><polygon points="3,1 14,8 3,15"/></svg>
+          }
+        </button>
+        {!isGifRef.current && (
+          <button
+            className={`vph-btn${loop ? ' vph-btn--on' : ''}`}
+            onClick={() => { const l = !loop; setLoop(l); if (videoRef.current) videoRef.current.loop = l; }}
+            title="Boucle"
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 4h10a4 4 0 0 1 0 8H5"/>
+              <polyline points="3,2 1,4 3,6"/>
+              <polyline points="5,10 7,12 5,14"/>
+            </svg>
+          </button>
+        )}
+        {!isGifRef.current && (
+          <>
+            <div className="vph-sep" />
+            {([0.5, 1, 2] as const).map(s => (
+              <button key={s}
+                className={`vph-spd${speed === s ? ' vph-spd--on' : ''}`}
+                onClick={() => setVideoSpeed(s)}
+              >{s}×</button>
+            ))}
+          </>
+        )}
+      </div>
 
-          <div className="video-ctrl-row">
-            <button className="video-btn" onClick={isPlaying ? pause : play} title={isPlaying ? 'Pause' : 'Lecture'}>
-              {isPlaying
-                ? <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="3" y="2" width="3.5" height="12" rx="1"/><rect x="9.5" y="2" width="3.5" height="12" rx="1"/></svg>
-                : <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="3,1 14,8 3,15"/></svg>
-              }
-            </button>
-            {!isGifRef.current && (
-              <>
-                <button
-                  className={`video-btn${loop ? ' video-btn--on' : ''}`}
-                  onClick={() => { const l = !loop; setLoop(l); if (videoRef.current) videoRef.current.loop = l; }}
-                  title="Boucle"
-                >
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 4h10a4 4 0 0 1 0 8H5"/>
-                    <polyline points="3,2 1,4 3,6"/>
-                    <polyline points="5,10 7,12 5,14"/>
-                  </svg>
-                </button>
-                <div className="video-speed-group">
-                  {([0.25, 0.5, 1, 2] as const).map(s => (
-                    <button key={s}
-                      className={`video-speed-btn${speed === s ? ' video-speed-btn--on' : ''}`}
-                      onClick={() => setVideoSpeed(s)}
-                    >{s}×</button>
-                  ))}
-                </div>
-              </>
-            )}
-            <button className="video-btn video-btn--eject" onClick={eject} title="Éjecter">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                <polygon points="8,2 14,9 2,9"/>
-                <rect x="2" y="11" width="12" height="2.5" rx="1"/>
-              </svg>
-            </button>
-          </div>
-
-          {!isGifRef.current && (
-            <div className="video-volume-row">
-              <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" style={{ flexShrink: 0, opacity: 0.6 }}>
-                {volume === 0
-                  ? <><path d="M9 3v10l-5-3.5H1V6.5h3L9 3z"/><line x1="11" y1="6" x2="15" y2="10" stroke="currentColor" strokeWidth="1.5"/><line x1="15" y1="6" x2="11" y2="10" stroke="currentColor" strokeWidth="1.5"/></>
-                  : <><path d="M9 3v10l-5-3.5H1V6.5h3L9 3z"/><path d="M11.5 5.5a3.5 3.5 0 0 1 0 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>{volume > 0.5 && <path d="M13 3.5a6 6 0 0 1 0 9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>}</>
-                }
-              </svg>
-              <input
-                type="range"
-                className="video-seek"
-                min={0} max={1} step={0.02}
-                value={volume}
-                onChange={e => {
-                  const v = Number(e.target.value);
-                  setVolume(v);
-                  if (videoRef.current) videoRef.current.volume = v;
-                }}
-                title={`Volume: ${Math.round(volume * 100)}%`}
-              />
-              <span className="video-time-label">{Math.round(volume * 100)}%</span>
-            </div>
-          )}
-
-          {!isGifRef.current && (
-            <div className="video-export-row">
-              <button
-                className="video-export-btn video-export-btn--main"
-                onClick={() => setShowExport(true)}
-              >
-                Exporter
-              </button>
-            </div>
-          )}
+      {/* CENTER — timeline */}
+      {!isGifRef.current && (
+        <div className="vph-center">
+          <span className="vph-t">{fmt(currentTime)}</span>
+          <input
+            type="range" className="vph-seek"
+            min={0} max={duration > 0 ? duration : 1} step={0.033}
+            value={duration > 0 ? Math.min(currentTime, duration) : 0}
+            style={{ '--pct': `${seekPct}%` } as React.CSSProperties}
+            onChange={e => seek(Number(e.target.value))}
+          />
+          <span className="vph-t">{fmt(duration)}</span>
         </div>
       )}
+      {isGifRef.current && <div className="vph-center" />}
+
+      {/* RIGHT — volume + actions */}
+      <div className="vph-right">
+        {!isGifRef.current && (
+          <>
+            <button
+              className="vph-btn"
+              onClick={() => { const v = volume > 0 ? 0 : 1; setVolume(v); if (videoRef.current) videoRef.current.volume = v; }}
+              title={`Volume : ${Math.round(volume * 100)}%`}
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                {volume === 0
+                  ? <><path d="M9 3v10l-5-3.5H1V6.5h3L9 3z"/><line x1="11" y1="6" x2="15" y2="10" stroke="currentColor" strokeWidth="1.5"/><line x1="15" y1="6" x2="11" y2="10" stroke="currentColor" strokeWidth="1.5"/></>
+                  : volume < 0.5
+                  ? <><path d="M9 3v10l-5-3.5H1V6.5h3L9 3z"/><path d="M11.5 5.5a3.5 3.5 0 0 1 0 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></>
+                  : <><path d="M9 3v10l-5-3.5H1V6.5h3L9 3z"/><path d="M11.5 5.5a3.5 3.5 0 0 1 0 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M13 3.5a6 6 0 0 1 0 9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></>
+                }
+              </svg>
+            </button>
+            <input
+              type="range" className="vph-vol"
+              min={0} max={1} step={0.02}
+              value={volume}
+              style={{ '--pct': `${volume * 100}%` } as React.CSSProperties}
+              onChange={e => { const v = Number(e.target.value); setVolume(v); if (videoRef.current) videoRef.current.volume = v; }}
+            />
+            <div className="vph-sep" />
+            <button className="vph-export" onClick={() => setShowExport(true)}>
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 2v8M4 7l4 4 4-4"/><path d="M2 13h12"/>
+              </svg>
+              Exporter
+            </button>
+          </>
+        )}
+        <div className="vph-sep" />
+        <button className="vph-btn vph-btn--eject" onClick={eject} title="Éjecter">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+            <polygon points="8,2 14,9 2,9"/>
+            <rect x="2" y="11" width="12" height="2.5" rx="1"/>
+          </svg>
+        </button>
+      </div>
 
       {showExport && (
         <ExportModal
@@ -272,4 +315,3 @@ export function VideoPanel() {
     </div>
   );
 }
-
