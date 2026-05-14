@@ -57,22 +57,64 @@ function computeDestroyedParams(p: EffectParams, t: number): EffectParams {
   };
 }
 
-// ─── Live mode: drift params by phase ────────────────────────────────────────
+// ─── Live mode: drift params by phase (per-effect) ───────────────────────────
 
-function applyLivePhase(p: EffectParams, phase: number): EffectParams {
+type LiveEffects = Record<EffectType, boolean>;
+type LivePhases  = Record<EffectType, number>;
+
+function applyLivePhase(p: EffectParams, phases: LivePhases, live: LiveEffects): EffectParams {
   return {
     ...p,
-    cybersigilism: {
-      ...p.cybersigilism,
-      seed: Math.round(Math.abs(Math.sin(phase * 0.37 + 1.2) * 99999)) + phase * 7,
-    },
-    dither: {
+    dither: live.dither ? {
       ...p.dither,
-      bias:     Math.max(0.1, Math.min(0.9, 0.5 + Math.sin(phase * 0.8) * 0.25)),
-      hueShift: p.dither.hueShift + Math.sin(phase * 0.5) * 25,
-    },
+      bias:     Math.max(0.1, Math.min(0.9, 0.5 + Math.sin(phases.dither * 0.8) * 0.25)),
+      hueShift: p.dither.hueShift + Math.sin(phases.dither * 0.5) * 25,
+    } : p.dither,
+    ascii: live.ascii ? {
+      ...p.ascii,
+      contrast:   Math.max(-100, Math.min(100, p.ascii.contrast + Math.sin(phases.ascii * 0.6) * 20)),
+      brightness: Math.max(-100, Math.min(100, p.ascii.brightness + Math.sin(phases.ascii * 0.4 + 1) * 15)),
+    } : p.ascii,
+    brutalist: live.brutalist ? {
+      ...p.brutalist,
+      glitch:      true,
+      glitchSeed:  Math.round(Math.abs(Math.sin(phases.brutalist * 2.3)) * 9999),
+      glitchIntensity: Math.max(1, p.brutalist.glitchIntensity + Math.sin(phases.brutalist * 1.7) * 2),
+    } : p.brutalist,
+    cybersigilism: live.cybersigilism ? {
+      ...p.cybersigilism,
+      seed: Math.round(Math.abs(Math.sin(phases.cybersigilism * 0.37 + 1.2) * 99999)) + phases.cybersigilism * 7,
+    } : p.cybersigilism,
+    thermal: live.thermal ? {
+      ...p.thermal,
+      contrast:   Math.max(0, Math.min(100, p.thermal.contrast + Math.sin(phases.thermal * 0.7) * 15)),
+      brightness: Math.max(-50, Math.min(50, p.thermal.brightness + Math.sin(phases.thermal * 0.5 + 1) * 15)),
+    } : p.thermal,
+    nightvision: live.nightvision ? {
+      ...p.nightvision,
+      gain:        Math.max(1, Math.min(8, p.nightvision.gain + Math.sin(phases.nightvision * 0.4) * 0.8)),
+      noiseAmount: Math.max(0, Math.min(80, p.nightvision.noiseAmount + Math.sin(phases.nightvision * 1.3) * 10)),
+    } : p.nightvision,
+    infrared: live.infrared ? {
+      ...p.infrared,
+      filmGrain: Math.max(0, Math.min(1, p.infrared.filmGrain + Math.sin(phases.infrared * 1.1) * 0.15)),
+      toneShift: Math.max(-0.5, Math.min(0.5, p.infrared.toneShift + Math.sin(phases.infrared * 0.6) * 0.15)),
+    } : p.infrared,
+    pointcloud: live.pointcloud ? {
+      ...p.pointcloud,
+      seed:   Math.round(Math.abs(Math.sin(phases.pointcloud * 1.7)) * 9999),
+      jitter: Math.max(0, Math.min(1, p.pointcloud.jitter + Math.sin(phases.pointcloud * 0.9) * 0.2)),
+    } : p.pointcloud,
+    topo: live.topo ? {
+      ...p.topo,
+      noiseAmount: Math.max(0, Math.min(1, p.topo.noiseAmount + Math.sin(phases.topo * 0.8) * 0.2)),
+      bands:       Math.max(2, Math.min(40, p.topo.bands + Math.round(Math.sin(phases.topo * 0.4) * 3))),
+    } : p.topo,
   };
 }
+
+const LIVE_ZERO_PHASES: LivePhases = { dither: 0, ascii: 0, brutalist: 0, cybersigilism: 0, thermal: 0, nightvision: 0, infrared: 0, pointcloud: 0, topo: 0 };
+const LIVE_ZERO_EFFECTS: LiveEffects = { dither: false, ascii: false, brutalist: false, cybersigilism: false, thermal: false, nightvision: false, infrared: false, pointcloud: false, topo: false };
 
 // ─── Randomize ────────────────────────────────────────────────────────────────
 
@@ -451,6 +493,7 @@ interface AppContextType {
   processingTime: number | null;
   destroyAmount: number;
   liveMode: boolean;
+  liveEffects: LiveEffects;
   liveSpeed: LiveSpeed;
   canUndo: boolean;
   canRedo: boolean;
@@ -466,6 +509,8 @@ interface AppContextType {
   selectEffect: (type: EffectType | null) => void;
   setDestroyAmount: (v: number) => void;
   toggleLiveMode: () => void;
+  toggleEffectLive: (type: EffectType) => void;
+  randomizeEffect: (type: EffectType) => void;
   processImage: () => void;
   undo: () => void;
   redo: () => void;
@@ -530,9 +575,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingTime, setProcessingTime] = useState<number | null>(null);
   const [destroyAmount, setDestroyAmount] = useState(0);
-  const [liveMode, setLiveMode] = useState(false);
+  const [liveEffects, setLiveEffects] = useState<LiveEffects>({ ...LIVE_ZERO_EFFECTS });
+  const [livePhases,  setLivePhases]  = useState<LivePhases>({ ...LIVE_ZERO_PHASES });
   const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>('normal');
-  const [livePhase, setLivePhase] = useState(0);
+  const liveEffectsRef = useRef<LiveEffects>({ ...LIVE_ZERO_EFFECTS });
+  useEffect(() => { liveEffectsRef.current = liveEffects; }, [liveEffects]);
+  const liveMode = Object.values(liveEffects).some(Boolean);
   const [gpuReady, setGpuReady] = useState(false);
   const [gpuFrameCount, setGpuFrameCount] = useState(0);
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -645,10 +693,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Live mode interval
+  // Live mode interval — increments phase for each effect that has live mode on
   useEffect(() => {
     if (liveMode) {
-      liveIntervalRef.current = setInterval(() => setLivePhase(p => p + 1), LIVE_SPEEDS[liveSpeed]);
+      liveIntervalRef.current = setInterval(() => {
+        setLivePhases(prev => {
+          const next = { ...prev };
+          for (const type of Object.keys(liveEffectsRef.current) as EffectType[]) {
+            if (liveEffectsRef.current[type]) next[type] = prev[type] + 1;
+          }
+          return next;
+        });
+      }, LIVE_SPEEDS[liveSpeed]);
     } else {
       if (liveIntervalRef.current !== null) {
         clearInterval(liveIntervalRef.current);
@@ -663,7 +719,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [liveMode, liveSpeed]);
 
-  const toggleLiveMode = useCallback(() => setLiveMode(v => !v), []);
+  const toggleEffectLive = useCallback((type: EffectType) => {
+    setLiveEffects(prev => ({ ...prev, [type]: !prev[type] }));
+  }, []);
+
+  const toggleLiveMode = useCallback(() => {
+    // Legacy no-op kept for interface compat
+  }, []);
 
   // Init GPU renderer once
   useEffect(() => {
@@ -682,7 +744,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const processGPU = useCallback((src: HTMLVideoElement | ImageData | HTMLCanvasElement, frameIdx = 0) => {
     if (!glRenderer.ready) return;
     let ep = destroyAmount > 0 ? computeDestroyedParams(params, destroyAmount / 100) : params;
-    if (liveMode) ep = applyLivePhase(ep, livePhase);
+    if (liveMode) ep = applyLivePhase(ep, livePhases, liveEffects);
 
     // For non-GPU-capable dither algos, substitute with bayer4 so we never do
     // a CPU readback + error-diffusion loop at video resolution (would be 3-5fps).
@@ -734,7 +796,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // When skipBlit is active (B/A mode), always increment so Canvas redraws the split
     setGpuFrameCount(n => (glRenderer.skipBlit ? n + 1 : n === 0 ? 1 : n));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effects, params, adjustments, destroyAmount, liveMode, livePhase]);
+  }, [effects, params, adjustments, destroyAmount, liveEffects, livePhases]);
 
   const setCanvasSizeOnly = useCallback((w: number, h: number) => {
     if (_canvasSizeCacheRef.current.width !== w || _canvasSizeCacheRef.current.height !== h) {
@@ -751,7 +813,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── processRawFrame (re-created when processing deps change) ──────────────
   const processRawFrame = useCallback((src: ImageData): ImageData => {
     let ep = destroyAmount > 0 ? computeDestroyedParams(params, destroyAmount / 100) : params;
-    if (liveMode) ep = applyLivePhase(ep, livePhase);
+    if (liveMode) ep = applyLivePhase(ep, livePhases, liveEffects);
     let data: ImageData = applyAdjustments(src, adjustments);
     for (const effect of [...effects].reverse()) {
       if (!effect.enabled) continue;
@@ -769,7 +831,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     return data;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effects, params, adjustments, destroyAmount, liveMode, livePhase]);
+  }, [effects, params, adjustments, destroyAmount, liveEffects, livePhases]);
 
   const setDirectResult = useCallback((img: ImageData) => {
     setResultImage(img);
@@ -837,7 +899,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const t0 = performance.now();
     const timer = setTimeout(() => {
       let ep = destroyAmount > 0 ? computeDestroyedParams(params, destroyAmount / 100) : params;
-      if (liveMode) ep = applyLivePhase(ep, livePhase);
+      if (liveMode) ep = applyLivePhase(ep, livePhases, liveEffects);
       // Apply pre-effect adjustments (brightness/contrast/saturation/gamma)
       let data: ImageData = applyAdjustments(originalImage, adjustments);
       for (const effect of effects) {
@@ -860,7 +922,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, delay);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [originalImage, effects, params, adjustments, destroyAmount, liveMode, livePhase]);
+  }, [originalImage, effects, params, adjustments, destroyAmount, liveEffects, livePhases]);
 
   // Params/effects/image/adjustments changes → 150ms debounce (image mode only)
   useEffect(() => {
@@ -874,7 +936,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!liveMode || appMode !== 'image') return;
     return runProcess(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [livePhase, appMode]);
+  }, [livePhases, appMode]);
 
   const setOriginalImage = useCallback((img: ImageData, w: number, h: number) => {
     setOriginalImageState(img);
@@ -929,6 +991,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAdjustments(randomAdjustments());
   }, [captureHistory]);
 
+  const randomizeEffect = useCallback((type: EffectType) => {
+    captureHistory();
+    const rp = randomParams();
+    setParams(prev => ({ ...prev, [type]: rp[type] }));
+  }, [captureHistory]);
+
   // No-op kept for API compatibility (processing handled by useEffect above)
   const processImage = useCallback(() => {
   }, []);
@@ -956,6 +1024,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       processingTime,
       destroyAmount,
       liveMode,
+      liveEffects,
       liveSpeed,
       canUndo,
       canRedo,
@@ -971,6 +1040,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectEffect,
       setDestroyAmount,
       toggleLiveMode,
+      toggleEffectLive,
+      randomizeEffect,
       processImage,
       undo,
       redo,

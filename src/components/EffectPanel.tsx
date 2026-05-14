@@ -1072,7 +1072,7 @@ const PANEL_LABELS: Record<string, string> = {
 };
 
 export function EffectPanel() {
-  const { selectedEffect, effects, selectEffect, toggleEffect, originalImage, resetParams } = useApp();
+  const { selectedEffect, effects, selectEffect, toggleEffect, originalImage, resetParams, toggleEffectLive, liveEffects, randomizeEffect } = useApp();
   const active = selectedEffect ?? effects.find(e => e.enabled)?.type ?? null;
 
   if (!active) {
@@ -1109,11 +1109,27 @@ export function EffectPanel() {
   const Panel = PANELS[active];
   const PANEL_ICONS: Record<string, string> = { dither: '▒', ascii: 'A', brutalist: '▪', cybersigilism: '✦', thermal: '◈', nightvision: '◉', infrared: '⊛', pointcloud: '⋮', topo: '≋' };
   const isEnabled = effects.find(e => e.type === active)?.enabled ?? false;
+  const isLive = liveEffects[active];
   return (
     <div className="panel-content">
       <div className="panel-header">
         <span className="panel-header-icon">{PANEL_ICONS[active]}</span>
         <span style={{ flex: 1 }}>{PANEL_LABELS[active]}</span>
+        <button
+          className={`panel-header-btn panel-live-btn${isLive ? ' panel-live-btn--on' : ''}`}
+          onClick={() => toggleEffectLive(active as import('../types').EffectType)}
+          title={isLive ? 'Désactiver le mode live' : 'Activer le mode live (animation automatique)'}
+        >
+          <span className={`panel-live-dot${isLive ? ' panel-live-dot--on' : ''}`} />
+          Live
+        </button>
+        <button
+          className="panel-header-btn panel-random-btn"
+          onClick={() => randomizeEffect(active as import('../types').EffectType)}
+          title="Paramètres aléatoires pour cet effet"
+        >
+          🎲
+        </button>
         <button
           className={`panel-header-btn panel-toggle-btn${isEnabled ? ' panel-toggle-btn--on' : ''}`}
           onClick={() => toggleEffect(active as import('../types').EffectType)}

@@ -173,6 +173,15 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
       .find(m => MediaRecorder.isTypeSupported(m)) ?? 'video/webm';
 
     const stream   = displayCanvas.captureStream(60);
+
+    // Add audio from the video element if available
+    try {
+      const videoStream = (video as HTMLVideoElement & { captureStream(): MediaStream }).captureStream();
+      videoStream.getAudioTracks().forEach(track => stream.addTrack(track));
+    } catch {
+      // No audio or not supported — continue with video-only
+    }
+
     const recorder = new MediaRecorder(stream, {
       mimeType,
       videoBitsPerSecond: webmBitrate * 1_000_000,
