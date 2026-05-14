@@ -600,19 +600,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const defaultVisualizerParams: VisualizerParams = {
-    mode: 'bars',
-    barCount: 80,
-    color: '#a855f7',
-    color2: '#06b6d4',
-    bgColor: '#0a0a0f',
-    gradient: true,
-    symmetric: false,
-    smooth: 0.78,
-    lineWidth: 2,
-    glow: true,
-    glowSize: 18,
-    fill: false,
-    scale: 1.0,
+    mode:      'scope',
+    color:     '#a855f7',
+    color2:    '#06b6d4',
+    bgColor:   '#080810',
+    gain:      1.2,
+    smooth:    0.82,
+    lineWidth: 1.5,
+    glow:      true,
+    glowSize:  16,
+    barCount:  96,
+    decay:     0.12,
   };
   const [visualizerParams, setVisualizerParams] = useState<VisualizerParams>(defaultVisualizerParams);
   const updateVisualizerParams = useCallback((partial: Partial<VisualizerParams>) => {

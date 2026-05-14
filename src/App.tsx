@@ -10,8 +10,8 @@ import { HeaderControls } from './components/HeaderControls';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AdjustmentsPanel } from './components/AdjustmentsPanel';
 import { PresetBar } from './components/PresetBar';
-import { VideoPanel } from './components/VideoPanel';
 import { AudioVisualizer } from './components/AudioVisualizer';
+import { WebcamPanel } from './components/WebcamPanel';
 
 // Inner layout uses context (must be inside AppProvider)
 function AppLayout({ theme, onToggleTheme }: { theme: 'dark' | 'light'; onToggleTheme: () => void }) {
@@ -71,6 +71,17 @@ function AppLayout({ theme, onToggleTheme }: { theme: 'dark' | 'light'; onToggle
         </div>
         <div className="app-header-sep" />
         <button
+          className="header-webcam-btn"
+          onClick={() => { setAppMode('webcam'); }}
+          title="Flux vidéo en direct (webcam, CamLink…)"
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: 5}}>
+            <rect x="1" y="4" width="10" height="8" rx="1.5"/>
+            <polygon points="11,7 15,5 15,11 11,9"/>
+          </svg>
+          Webcam
+        </button>
+        <button
           className="header-load-btn"
           onClick={() => fileInputRef.current?.click()}
           title="Charger une image, vidéo ou musique"
@@ -95,8 +106,8 @@ function AppLayout({ theme, onToggleTheme }: { theme: 'dark' | 'light'; onToggle
       <aside className="app-sidebar-left">
         {/* Source panel */}
         <div className="app-source-panel">
-          {appMode === 'video' && <VideoPanel />}
-          {appMode === 'audio' && <AudioVisualizer />}
+          {appMode === 'audio'   && <AudioVisualizer />}
+          {appMode === 'webcam'  && <WebcamPanel />}
         </div>
         {/* Effect list always visible */}
         <EffectList />

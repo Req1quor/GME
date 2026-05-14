@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useApp } from '../context';
 import { glRenderer } from '../gl/renderer';
 import { DropZone } from './DropZone';
+import { VideoPanel } from './VideoPanel';
 
 export function Canvas() {
-  const { resultImage, canvasSize, originalImage, isProcessing, effects, processingTime, gpuReady, gpuFrameCount, setDisplayCanvas } = useApp();
+  const { resultImage, canvasSize, originalImage, isProcessing, effects, processingTime, gpuReady, gpuFrameCount, setDisplayCanvas, appMode } = useApp();
   const frameRef = useRef<HTMLDivElement>(null);
   const panStart = useRef({ x: 0, y: 0, px: 0, py: 0 });
 
@@ -41,7 +42,8 @@ export function Canvas() {
 
     // In GPU mode without B/A, the blit is handled directly by processGPU.
     // Only handle the CPU / B/A fallback path here.
-    const useGpu = gpuReady && glRenderer.ready && glRenderer.width > 0 && gpuFrameCount > 0;
+    // Audio and webcam modes always use the CPU (setDirectResult) path.
+    const useGpu = appMode !== 'audio' && appMode !== 'webcam' && gpuReady && glRenderer.ready && glRenderer.width > 0 && gpuFrameCount > 0;
     if (useGpu && !baMode) return;
 
     if (!baMode) {
@@ -124,7 +126,7 @@ export function Canvas() {
     setPan({ x: 0, y: 0 });
   }, []);
 
-  if (!originalImage && !canvasSize.width) {
+  if (!originalImage && !canvasSize.width && appMode !== 'video') {
     return <DropZone />;
   }
 
@@ -175,8 +177,11 @@ export function Canvas() {
         </div>
       )}
 
-      {/* Bottom info bar */}
-      <div className="canvas-infobar">
+      {/* Bottom area: video player + info chips */}
+      <div className="canvas-bottom">
+        {appMode === 'video' && <VideoPanel />}
+        {/* Info chips */}
+        <div className="canvas-infobar">
         <span className="canvas-info-chip">{width} × {height}</span>
         {activeCount > 0 && (
           <span className="canvas-info-chip canvas-info-chip--accent">
@@ -207,6 +212,7 @@ export function Canvas() {
         >
           B/A
         </button>
+        </div>
       </div>
     </div>
   );

@@ -1,59 +1,114 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+﻿import { useRef, useState, useCallback, useEffect } from 'react';
 import { useApp } from '../context';
-import { renderVisualizer, resetVisualizerState } from '../effects/visualizer';
+import { drawVisualizerFrame, resetVisualizerState } from '../effects/visualizer';
 import type { VizMode } from '../types';
 
-const VIZ_WIDTH = 800;
-const VIZ_HEIGHT = 600;
+const VIZ_WIDTH  = 1920;
+const VIZ_HEIGHT = 1080;
 
 const VIZ_LABELS: Record<VizMode, string> = {
-  bars: 'Barres',
-  waveform: 'Oscilloscope',
-  radial: 'Radial',
-  spectrogram: 'Spectrogramme',
+  scope:    'SCOPE',
+  spectrum: 'SPECTRE',
+  radial:   'RADIAL',
+  tunnel:   'TUNNEL',
+  glitch:   'GLITCH',
+  chroma:   'CHROMA',
 };
 
-export function AudioVisualizer() {
-  const { processRawFrame, setDirectResult, setDirectSource, setAppMode, visualizerParams, updateVisualizerParams, pendingAudioFile, setPendingAudioFile } = useApp();
-  const processRef = useRef(processRawFrame);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const rafRef = useRef<number>(0);
+const MODES = Object.keys(VIZ_LABELS) as VizMode[];
 
-  const [loaded, setLoaded] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [startedAt, setStartedAt] = useState(0); // audioCtx time when play() was called
-  const [pausedAt, setPausedAt] = useState(0);   // offset in seconds
+export function AudioVisualizer() {
+  const {
+    processRawFrame, setDirectResult, setDirectSource, setAppMode,
+    visualizerParams, updateVisualizerParams,
+    pendingAudioFile, setPendingAudioFile,
+    effects, adjustments,
+    getDisplayCanvas,
+  } = useApp();
+
+  // ── Refs for stale-closure-safe RAF loop ───────────────────────────────────
+  const processRef          = useRef(processRawFrame);
+  const vizParamsRef        = useRef(visualizerParams);
+  const startedAtRef        = useRef(0);
+  const pausedAtRef         = useRef(0);
+  const effectsRef          = useRef(effects);
+  const adjustmentsRef      = useRef(adjustments);
+  const getDisplayCanvasRef = useRef(getDisplayCanvas);
+  const audioCtxRef         = useRef<AudioContext | null>(null);
+  const analyserRef         = useRef<AnalyserNode | null>(null);
+  const sourceRef           = useRef<AudioBufferSourceNode | null>(null);
+  const rafRef              = useRef<number>(0);
+
+  const [loaded,      setLoaded]      = useState(false);
+  const [isPlaying,   setIsPlaying]   = useState(false);
+  const [duration,    setDuration]    = useState(0);
+  const [startedAt,   setStartedAt]   = useState(0);
+  const [pausedAt,    setPausedAt]    = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
-  const [fileName, setFileName] = useState('');
+  const [fileName,    setFileName]    = useState('');
 
-  useEffect(() => { processRef.current = processRawFrame; }, [processRawFrame]);
+  // Keep refs in sync
+  useEffect(() => { processRef.current          = processRawFrame;   }, [processRawFrame]);
+  useEffect(() => { vizParamsRef.current         = visualizerParams;  }, [visualizerParams]);
+  useEffect(() => { startedAtRef.current         = startedAt;         }, [startedAt]);
+  useEffect(() => { pausedAtRef.current          = pausedAt;          }, [pausedAt]);
+  useEffect(() => { effectsRef.current           = effects;           }, [effects]);
+  useEffect(() => { adjustmentsRef.current       = adjustments;       }, [adjustments]);
+  useEffect(() => { getDisplayCanvasRef.current  = getDisplayCanvas;  }, [getDisplayCanvas]);
 
-  // Re-render current frame when effects/params change while paused
+  // Wire smooth parameter to analyser
   useEffect(() => {
-    if (!isPlaying && analyserRef.current) {
-      const frame = renderVisualizer(analyserRef.current, VIZ_WIDTH, VIZ_HEIGHT, visualizerParams);
-      setDirectResult(processRef.current(frame));
+    if (analyserRef.current) {
+      analyserRef.current.smoothingTimeConstant = visualizerParams.smooth;
     }
-  }, [processRawFrame, visualizerParams, isPlaying, setDirectResult]);
+  }, [visualizerParams.smooth]);
+
+  // ── Frame rendering ────────────────────────────────────────────────────────
+
+  const needsProcessing = useCallback((): boolean => {
+    if (effectsRef.current.some(e => e.enabled)) return true;
+    const a = adjustmentsRef.current;
+    return !(a.brightness === 0 && a.contrast === 0 && a.saturation === 100 && a.gamma === 1.0);
+  }, []);
+
+  const drawFrame = useCallback(() => {
+    const analyser = analyserRef.current;
+    if (!analyser) return;
+    const vizCanvas = drawVisualizerFrame(analyser, VIZ_WIDTH, VIZ_HEIGHT, vizParamsRef.current);
+    if (needsProcessing()) {
+      const imageData = vizCanvas.getContext('2d')!.getImageData(0, 0, VIZ_WIDTH, VIZ_HEIGHT);
+      setDirectResult(processRef.current(imageData));
+    } else {
+      const display = getDisplayCanvasRef.current();
+      if (display) {
+        if (display.width !== VIZ_WIDTH || display.height !== VIZ_HEIGHT) {
+          display.width  = VIZ_WIDTH;
+          display.height = VIZ_HEIGHT;
+        }
+        display.getContext('2d')!.drawImage(vizCanvas, 0, 0);
+      }
+    }
+  }, [needsProcessing, setDirectResult]);
+
+  // Redraw on param / effect change while paused
+  useEffect(() => {
+    if (!isPlaying && analyserRef.current) drawFrame();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processRawFrame, visualizerParams, effects, adjustments, isPlaying]);
 
   const rafLoop = useCallback(() => {
     const analyser = analyserRef.current;
-    const ctx = audioCtxRef.current;
+    const ctx      = audioCtxRef.current;
     if (!analyser || !ctx) return;
-
-    const frame = renderVisualizer(analyser, VIZ_WIDTH, VIZ_HEIGHT, visualizerParams);
-    setDirectResult(processRef.current(frame));
-    setCurrentTime(ctx.currentTime - startedAt + pausedAt);
+    drawFrame();
+    setCurrentTime(ctx.currentTime - startedAtRef.current + pausedAtRef.current);
     rafRef.current = requestAnimationFrame(rafLoop);
-  // visualizerParams intentionally excluded — read via closure is fine since renderVisualizer uses latest opts
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setDirectResult, startedAt, pausedAt]);
+  }, [drawFrame]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  // ── Transport ──────────────────────────────────────────────────────────────
 
   const createSource = useCallback((buffer: AudioBuffer, offset: number) => {
     const ctx = audioCtxRef.current!;
@@ -85,39 +140,34 @@ export function AudioVisualizer() {
   const pause = useCallback(() => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
-    const elapsed = ctx.currentTime - startedAt + pausedAt;
+    const elapsed = ctx.currentTime - startedAtRef.current + pausedAtRef.current;
     sourceRef.current?.stop();
     sourceRef.current = null;
     setIsPlaying(false);
     cancelAnimationFrame(rafRef.current);
     setPausedAt(elapsed);
+    pausedAtRef.current = elapsed;
     setCurrentTime(elapsed);
-  }, [startedAt, pausedAt]);
+  }, []);
 
   const seek = useCallback((t: number) => {
     const wasPlaying = isPlaying;
-    if (wasPlaying) {
-      sourceRef.current?.stop();
-      sourceRef.current = null;
-      cancelAnimationFrame(rafRef.current);
-    }
+    if (wasPlaying) { sourceRef.current?.stop(); sourceRef.current = null; cancelAnimationFrame(rafRef.current); }
     setPausedAt(t);
     setCurrentTime(t);
-    if (wasPlaying && audioBuffer && audioCtxRef.current) {
-      setTimeout(() => play(t), 0);
-    }
+    if (wasPlaying && audioBuffer && audioCtxRef.current) setTimeout(() => play(t), 0);
   }, [isPlaying, audioBuffer, play]);
 
   const loadFile = useCallback(async (file: File) => {
     const arrayBuffer = await file.arrayBuffer();
-    const audioCtx = new AudioContext();
-    const analyser = audioCtx.createAnalyser();
-    analyser.smoothingTimeConstant = 0;
-    analyser.fftSize = 2048;
-    const buffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const audioCtx    = new AudioContext();
+    const analyser    = audioCtx.createAnalyser();
+    analyser.fftSize                  = 2048;
+    analyser.smoothingTimeConstant    = vizParamsRef.current.smooth;
 
-    audioCtxRef.current = audioCtx;
-    analyserRef.current = analyser;
+    const buffer = await audioCtx.decodeAudioData(arrayBuffer);
+    audioCtxRef.current  = audioCtx;
+    analyserRef.current  = analyser;
     setAudioBuffer(buffer);
     setDuration(buffer.duration);
     setFileName(file.name);
@@ -127,12 +177,11 @@ export function AudioVisualizer() {
     setAppMode('audio');
     resetVisualizerState();
 
-    // Set canvas size
     const blank = new ImageData(VIZ_WIDTH, VIZ_HEIGHT);
     setDirectSource(blank, VIZ_WIDTH, VIZ_HEIGHT);
-  }, [setAppMode, setDirectSource]);
+    setDirectResult(blank);
+  }, [setAppMode, setDirectSource, setDirectResult]);
 
-  // Consume pendingAudioFile set by DropZone (must be after loadFile declaration)
   useEffect(() => {
     if (!pendingAudioFile) return;
     setPendingAudioFile(null);
@@ -145,7 +194,7 @@ export function AudioVisualizer() {
     audioCtxRef.current?.close();
     audioCtxRef.current = null;
     analyserRef.current = null;
-    sourceRef.current = null;
+    sourceRef.current   = null;
     setLoaded(false);
     setIsPlaying(false);
     setAudioBuffer(null);
@@ -155,108 +204,150 @@ export function AudioVisualizer() {
     setAppMode('image');
   }, [pause, setAppMode]);
 
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const mode         = visualizerParams.mode;
+  const hasBarCount  = mode === 'spectrum' || mode === 'radial';
+  const hasDecay     = mode === 'scope' || mode === 'chroma';
+  const activeEffects = effects.filter(e => e.enabled).length;
+
+  const fmt = (s: number) =>
+    `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const pct = duration > 0 ? `${(currentTime / duration) * 100}%` : '0%';
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  if (!loaded) return <div className="audio-visualizer" />;
 
   return (
     <div className="audio-visualizer">
-      {!loaded ? null : (
-        <div className="audio-controls">
-          {/* File name */}
-          <div className="audio-filename" title={fileName}>{fileName}</div>
+      <div className="avc">
 
-          {/* Seek bar */}
-          <div className="video-seek-row">
-            <span className="video-time-label">{fmt(currentTime)}</span>
-            <input
-              type="range"
-              className="video-seek"
-              min={0} max={duration || 1} step={0.1}
-              value={currentTime}
-              onChange={e => seek(Number(e.target.value))}
-            />
-            <span className="video-time-label">{fmt(duration)}</span>
-          </div>
-
-          {/* Play controls */}
-          <div className="video-ctrl-row">
-            <button className="video-btn" onClick={isPlaying ? pause : () => play()} title={isPlaying ? 'Pause' : 'Lecture'}>
-              {isPlaying ? '⏸' : '▶'}
-            </button>
-            <button className="video-btn video-btn--eject" onClick={eject} title="Changer de fichier">⏏</button>
-          </div>
-
-          {/* Visualizer mode */}
-          <div className="viz-mode-row">
-            {(Object.keys(VIZ_LABELS) as VizMode[]).map(m => (
-              <button
-                key={m}
-                className={`viz-mode-btn${visualizerParams.mode === m ? ' viz-mode-btn--on' : ''}`}
-                onClick={() => updateVisualizerParams({ mode: m })}
-              >{VIZ_LABELS[m]}</button>
-            ))}
-          </div>
-
-          {/* Params */}
-          <div className="viz-params">
-            <VizRow label="Barres" min={16} max={256} value={visualizerParams.barCount} step={8}
-              onChange={v => updateVisualizerParams({ barCount: v })} />
-            <VizRow label="Amplitud." min={0.3} max={2.5} value={visualizerParams.scale} step={0.1}
-              onChange={v => updateVisualizerParams({ scale: v })} fmt={v => v.toFixed(1)} />
-            <VizRow label="Smooth" min={0} max={95} value={Math.round(visualizerParams.smooth * 100)} step={5}
-              onChange={v => updateVisualizerParams({ smooth: v / 100 })} fmt={v => `${v}%`} />
-            <VizRow label="Trait" min={1} max={8} value={visualizerParams.lineWidth} step={0.5}
-              onChange={v => updateVisualizerParams({ lineWidth: v })} fmt={v => v.toFixed(1)} />
-
-            <div className="viz-color-row">
-              <label className="viz-color-label">Couleur 1</label>
-              <input type="color" className="viz-color-input" value={visualizerParams.color}
-                onChange={e => updateVisualizerParams({ color: e.target.value })} />
-              <label className="viz-color-label">Couleur 2</label>
-              <input type="color" className="viz-color-input" value={visualizerParams.color2}
-                onChange={e => updateVisualizerParams({ color2: e.target.value })} />
-              <label className="viz-color-label">Fond</label>
-              <input type="color" className="viz-color-input" value={visualizerParams.bgColor}
-                onChange={e => updateVisualizerParams({ bgColor: e.target.value })} />
-            </div>
-
-            <div className="viz-toggle-row">
-              {[
-                { key: 'gradient', label: 'Dégradé' },
-                { key: 'symmetric', label: 'Symétrique' },
-                { key: 'glow', label: 'Lueur' },
-                { key: 'fill', label: 'Remplissage' },
-              ].map(({ key, label }) => (
-                <button
-                  key={key}
-                  className={`viz-toggle${visualizerParams[key as keyof typeof visualizerParams] ? ' viz-toggle--on' : ''}`}
-                  onClick={() => updateVisualizerParams({ [key]: !visualizerParams[key as keyof typeof visualizerParams] })}
-                >{label}</button>
-              ))}
+        {/* ── Transport ─────────────────────────────────────────────── */}
+        <div className="avc-transport">
+          <button className="avc-play-btn" onClick={isPlaying ? pause : () => play()} title={isPlaying ? 'Pause' : 'Lecture'}>
+            {isPlaying
+              ? <svg viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="2" width="3.5" height="12"/><rect x="9.5" y="2" width="3.5" height="12"/></svg>
+              : <svg viewBox="0 0 16 16" fill="currentColor"><polygon points="4,2 14,8 4,14"/></svg>
+            }
+          </button>
+          <div className="avc-seek-col">
+            <div className="avc-filename" title={fileName}>{fileName}</div>
+            <div className="avc-seek-row">
+              <span className="avc-time">{fmt(currentTime)}</span>
+              <input
+                type="range" className="avc-seekbar"
+                min={0} max={duration || 1} step={0.1} value={currentTime}
+                style={{ '--fill': pct } as React.CSSProperties}
+                onChange={e => seek(Number(e.target.value))}
+              />
+              <span className="avc-time">{fmt(duration)}</span>
             </div>
           </div>
+          <button className="avc-eject-btn" onClick={eject} title="Éjecter">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <polygon points="8,2 14,9 2,9"/>
+              <rect x="2" y="11" width="12" height="2.5"/>
+            </svg>
+          </button>
         </div>
-      )}
+
+        {/* ── Mode grid ─────────────────────────────────────────────── */}
+        <div className="avc-modegrid">
+          {MODES.map(m => (
+            <button
+              key={m}
+              className={`avc-modekey${mode === m ? ' avc-modekey--on' : ''}`}
+              onClick={() => updateVisualizerParams({ mode: m })}
+            >{VIZ_LABELS[m]}</button>
+          ))}
+        </div>
+
+        {/* ── Parameters ────────────────────────────────────────────── */}
+        <div className="avc-params">
+          <ParamRow label="GAIN"
+            min={0.3} max={4} step={0.1} value={visualizerParams.gain}
+            onChange={v => updateVisualizerParams({ gain: v })}
+            fmt={v => v.toFixed(1) + '×'} />
+          <ParamRow label="SMOOTH"
+            min={0} max={95} step={5} value={Math.round(visualizerParams.smooth * 100)}
+            onChange={v => updateVisualizerParams({ smooth: v / 100 })}
+            fmt={v => v + '%'} />
+          <ParamRow label="WIDTH"
+            min={0.5} max={6} step={0.5} value={visualizerParams.lineWidth}
+            onChange={v => updateVisualizerParams({ lineWidth: v })}
+            fmt={v => v.toFixed(1)} />
+          {hasBarCount && (
+            <ParamRow label="RÉS"
+              min={32} max={256} step={8} value={visualizerParams.barCount}
+              onChange={v => updateVisualizerParams({ barCount: v })} />
+          )}
+          {hasDecay && (
+            <ParamRow label="TRAIL"
+              min={2} max={55} step={1} value={Math.round(visualizerParams.decay * 100)}
+              onChange={v => updateVisualizerParams({ decay: v / 100 })}
+              fmt={v => v + '%'} />
+          )}
+          {visualizerParams.glow && (
+            <ParamRow label="GLOW"
+              min={2} max={40} step={2} value={visualizerParams.glowSize}
+              onChange={v => updateVisualizerParams({ glowSize: v })} />
+          )}
+        </div>
+
+        {/* ── Options ───────────────────────────────────────────────── */}
+        <div className="avc-opts">
+          <ColorBtn label="C1"   value={visualizerParams.color}   onChange={v => updateVisualizerParams({ color:   v })} />
+          <ColorBtn label="C2"   value={visualizerParams.color2}  onChange={v => updateVisualizerParams({ color2:  v })} />
+          <ColorBtn label="BG"   value={visualizerParams.bgColor} onChange={v => updateVisualizerParams({ bgColor: v })} />
+          <span className="avc-opts-spacer" />
+          <Chip on={visualizerParams.glow} onClick={() => updateVisualizerParams({ glow: !visualizerParams.glow })}>GLOW</Chip>
+          {activeEffects > 0 && <span className="avc-fx-badge">FX·{activeEffects}</span>}
+        </div>
+
+      </div>
     </div>
   );
 }
 
-// ── Sub-component: slider row ─────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-function VizRow({
-  label, min, max, step, value, onChange, fmt = String,
+function ParamRow({
+  label, min, max, step, value, onChange,
+  fmt = (v: number) => String(Math.round(v)),
 }: {
   label: string; min: number; max: number; step: number; value: number;
   onChange: (v: number) => void; fmt?: (v: number) => string;
 }) {
+  const pct = Math.round(((value - min) / (max - min)) * 100);
   return (
-    <div className="viz-row">
-      <span className="viz-row-label">{label}</span>
+    <div className="avc-param-row">
+      <span className="avc-param-label">{label}</span>
       <input
-        type="range" className="viz-row-slider"
+        type="range" className="avc-param-slider"
         min={min} max={max} step={step} value={value}
+        style={{ '--fill': `${pct}%` } as React.CSSProperties}
         onChange={e => onChange(Number(e.target.value))}
       />
-      <span className="viz-row-value">{fmt(value)}</span>
+      <span className="avc-param-val">{fmt(value)}</span>
     </div>
+  );
+}
+
+function ColorBtn({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="avc-color-btn" title={label}>
+      <span className="avc-color-dot" style={{ background: value }} />
+      <span className="avc-color-lbl">{label}</span>
+      <input type="color" className="avc-color-input" value={value} onChange={e => onChange(e.target.value)} />
+    </label>
+  );
+}
+
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button className={`avc-chip${on ? ' avc-chip--on' : ''}`} onClick={onClick}>
+      {children}
+    </button>
   );
 }

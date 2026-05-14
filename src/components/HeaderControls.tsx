@@ -7,7 +7,7 @@ const SPEED_TITLES: Record<LiveSpeed, string> = { slow: 'Lent (2.4s)', normal: '
 export function HeaderControls() {
   const { originalImage, appMode, destroyAmount, setDestroyAmount, liveMode, liveSpeed, setLiveSpeed, randomize } = useApp();
 
-  if (!originalImage && appMode !== 'video') return null;
+  if (!originalImage && appMode !== 'video' && appMode !== 'webcam') return null;
 
   return (
     <>
