@@ -3,31 +3,40 @@ import { useApp } from '../context';
 import { drawVisualizerFrame, resetVisualizerState } from '../effects/visualizer';
 import type { VizMode } from '../types';
 
-const VIZ_WIDTH  = 1920;
-const VIZ_HEIGHT = 1080;
+const VIZ_WIDTH  = 960;
+const VIZ_HEIGHT = 540;
 
 const VIZ_LABELS: Record<VizMode, string> = {
-  scope:    'SCOPE',
-  spectrum: 'SPECTRE',
-  radial:   'RADIAL',
-  tunnel:   'TUNNEL',
-  glitch:   'GLITCH',
-  chroma:   'CHROMA',
+  bars:        'BARS',
+  scope:       'SCOPE',
+  spectrogram: 'SPECTRO',
+  rings:       'RINGS',
+  mirror:      'MIRROR',
+  storm:       'STORM',
+  flux:        'FLUX',
+  vortex:      'VORTEX',
+  attractor:   'CHAOS',
+  petals:      'MANDALA',
+  scape:       'RELIEF',
+  weave:       'TRAME',
 };
 
 const MODES = Object.keys(VIZ_LABELS) as VizMode[];
 
 export function AudioVisualizer() {
   const {
-    processRawFrame, setDirectResult, setDirectSource, setAppMode,
+    processRawFrame, processGPU, setDirectResult, setDirectSource, setAppMode,
     visualizerParams, updateVisualizerParams,
     pendingAudioFile, setPendingAudioFile,
     effects, adjustments,
     getDisplayCanvas,
+    setAudioData,
   } = useApp();
 
   // ── Refs for stale-closure-safe RAF loop ───────────────────────────────────
   const processRef          = useRef(processRawFrame);
+  const processGPURef       = useRef(processGPU);
+  const setAudioDataRef     = useRef(setAudioData);
   const vizParamsRef        = useRef(visualizerParams);
   const startedAtRef        = useRef(0);
   const pausedAtRef         = useRef(0);
@@ -50,6 +59,8 @@ export function AudioVisualizer() {
 
   // Keep refs in sync
   useEffect(() => { processRef.current          = processRawFrame;   }, [processRawFrame]);
+  useEffect(() => { processGPURef.current        = processGPU;        }, [processGPU]);
+  useEffect(() => { setAudioDataRef.current      = setAudioData;      }, [setAudioData]);
   useEffect(() => { vizParamsRef.current         = visualizerParams;  }, [visualizerParams]);
   useEffect(() => { startedAtRef.current         = startedAt;         }, [startedAt]);
   useEffect(() => { pausedAtRef.current          = pausedAt;          }, [pausedAt]);
@@ -75,10 +86,27 @@ export function AudioVisualizer() {
   const drawFrame = useCallback(() => {
     const analyser = analyserRef.current;
     if (!analyser) return;
+
+    // ── Extract audio metrics every frame and feed reactivity system ───────
+    const fLen    = analyser.frequencyBinCount;
+    const fBuf    = new Uint8Array(fLen);
+    analyser.getByteFrequencyData(fBuf);
+    const bassEnd = Math.max(1, Math.floor(fLen * 0.06));
+    const midEnd  = Math.max(1, Math.floor(fLen * 0.40));
+    let bass = 0, mid = 0, treble = 0;
+    for (let i = 0;       i < bassEnd; i++) bass   += fBuf[i];
+    for (let i = bassEnd; i < midEnd;  i++) mid    += fBuf[i];
+    for (let i = midEnd;  i < fLen;    i++) treble += fBuf[i];
+    bass   /= bassEnd            * 255;
+    mid    /= (midEnd - bassEnd) * 255;
+    treble /= (fLen   - midEnd)  * 255;
+    setAudioDataRef.current({ bass, mid, treble, amplitude: bass * 0.5 + mid * 0.35 + treble * 0.15 });
+
     const vizCanvas = drawVisualizerFrame(analyser, VIZ_WIDTH, VIZ_HEIGHT, vizParamsRef.current);
+
     if (needsProcessing()) {
-      const imageData = vizCanvas.getContext('2d')!.getImageData(0, 0, VIZ_WIDTH, VIZ_HEIGHT);
-      setDirectResult(processRef.current(imageData));
+      // GPU pipeline — no expensive getImageData() readback
+      processGPURef.current(vizCanvas);
     } else {
       const display = getDisplayCanvasRef.current();
       if (display) {
@@ -89,7 +117,7 @@ export function AudioVisualizer() {
         display.getContext('2d')!.drawImage(vizCanvas, 0, 0);
       }
     }
-  }, [needsProcessing, setDirectResult]);
+  }, [needsProcessing]);
 
   // Redraw on param / effect change while paused
   useEffect(() => {
@@ -207,8 +235,8 @@ export function AudioVisualizer() {
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const mode         = visualizerParams.mode;
-  const hasBarCount  = mode === 'spectrum' || mode === 'radial';
-  const hasDecay     = mode === 'scope' || mode === 'chroma';
+  const hasBarCount  = mode === 'bars'  || mode === 'storm'  || mode === 'petals' || mode === 'scape';
+  const hasDecay     = mode === 'flux'  || mode === 'vortex' || mode === 'storm'  || mode === 'scope';
   const activeEffects = effects.filter(e => e.enabled).length;
 
   const fmt = (s: number) =>

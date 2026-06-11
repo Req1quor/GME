@@ -1,7 +1,10 @@
 ﻿import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../context';
-import type { DitherAlgo, DitherParams, AsciiParams, BrutalistParams, CybersigilismParams } from '../types';
+import type { DitherAlgo, DitherParams, AsciiParams, BrutalistParams, CybersigilismParams,
+  HalftoneParams, MatrixRainParams, DotsParams, ContourParams, PixelSortParams, BlockifyParams,
+  ThresholdEffectParams, EdgeDetectionParams, CrosshatchParams, WaveLinesParams,
+  NoiseFieldParams, VoronoiParams, VhsParams } from '../types';
 import type { ThermalParams } from '../effects/thermal';
 import type { NightVisionParams } from '../effects/nightvision';
 import type { InfraredParams } from '../effects/infrared';
@@ -374,18 +377,16 @@ function AsciiPanel() {
   );
 }
 
-// ─── Brutalist panel ─────────────────────────────────────────────────────────
-
 function BrutalistPanel() {
   const { params, updateParams } = useApp();
   const p = params.brutalist as BrutalistParams;
   const update = (partial: Partial<BrutalistParams>) => updateParams('brutalist', partial);
 
   const presets = [
-    { label: 'VHS', apply: () => update({ glitch: true, glitchIntensity: 4, glitchSeed: 42, chromaticAberration: true, chromaticAmount: 6, scanlines: true, scanlineIntensity: 0.4, noise: false, posterize: false, threshold: false, edgeDetect: false, pixelSort: false }) },
-    { label: 'GLITCH', apply: () => update({ glitch: true, glitchIntensity: 8, glitchSeed: Math.floor(Math.random() * 9999), chromaticAberration: true, chromaticAmount: 12, scanlines: false, noise: true, noiseAmount: 10, posterize: false, threshold: false, edgeDetect: false, pixelSort: false }) },
-    { label: 'GRAVURE', apply: () => update({ edgeDetect: true, edgeThreshold: 60, edgeColor: '#ffffff', posterize: false, threshold: false, glitch: false, chromaticAberration: false, scanlines: false, noise: false, pixelSort: false }) },
-    { label: 'DATA', apply: () => update({ pixelSort: true, pixelSortAxis: 'horizontal', pixelSortThreshold: 100, glitch: true, glitchIntensity: 3, glitchSeed: 7, noise: true, noiseAmount: 15, posterize: false, threshold: false, edgeDetect: false, chromaticAberration: false, scanlines: false }) },
+    { label: 'VHS', apply: () => update({ glitch: true, glitchIntensity: 4, glitchSeed: 42, chromaticAberration: true, chromaticAmount: 6, scanlines: true, scanlineIntensity: 0.4, noise: false, posterize: false }) },
+    { label: 'GLITCH', apply: () => update({ glitch: true, glitchIntensity: 8, glitchSeed: Math.floor(Math.random() * 9999), chromaticAberration: true, chromaticAmount: 12, scanlines: false, noise: true, noiseAmount: 10, posterize: false }) },
+    { label: 'GRAIN', apply: () => update({ noise: true, noiseAmount: 35, glitch: false, chromaticAberration: false, scanlines: false, posterize: false }) },
+    { label: 'POSTER', apply: () => update({ posterize: true, posterizeLevels: 4, glitch: false, chromaticAberration: false, scanlines: false, noise: false }) },
   ];
 
   return (
@@ -399,14 +400,6 @@ function BrutalistPanel() {
         {p.posterize && (
           <ParamRow label="Niveaux" value={p.posterizeLevels}>
             <Slider min={2} max={8} value={p.posterizeLevels} onChange={v => update({ posterizeLevels: v })} />
-          </ParamRow>
-        )}
-        <ParamRow label="">
-          <Toggle value={p.threshold} onChange={v => update({ threshold: v })} label="Seuillage N/B" />
-        </ParamRow>
-        {p.threshold && (
-          <ParamRow label="Seuil" value={p.thresholdValue}>
-            <Slider min={0} max={255} value={p.thresholdValue} onChange={v => update({ thresholdValue: v })} />
           </ParamRow>
         )}
       </Accordion>
@@ -438,7 +431,6 @@ function BrutalistPanel() {
         )}
         <ParamRow label="">
           <Toggle value={p.chromaticAberration ?? false} onChange={v => update({ chromaticAberration: v })} label="Aberration chromatique" />
-          {(p.chromaticAberration ?? false) && <Tip text="Décale les canaux rouge et bleu horizontalement, imitant les lentilles optiques défectueuses ou les capteurs CRT." />}
         </ParamRow>
         {p.chromaticAberration && (
           <ParamRow label="Décalage" value={(p.chromaticAmount ?? 5) + 'px'}>
@@ -455,42 +447,17 @@ function BrutalistPanel() {
         )}
       </Accordion>
 
-      <Accordion label="Structures">
+      <Accordion label="Grille">
         <ParamRow label="">
-          <Toggle value={p.edgeDetect ?? false} onChange={v => update({ edgeDetect: v })} label="Sobel edges" />
-          {(p.edgeDetect ?? false) && <Tip text="Filtre Sobel : détecte les contours par gradient. Isole les arêtes de l'image — idéal pour un rendu gravure ou manga." />}
+          <Toggle value={p.grid ?? false} onChange={v => update({ grid: v })} label="Grille overlay" />
         </ParamRow>
-        {p.edgeDetect && (
+        {p.grid && (
           <>
-            <ParamRow label="Seuil" value={p.edgeThreshold ?? 100}>
-              <Slider min={0} max={360} value={p.edgeThreshold ?? 100} onChange={v => update({ edgeThreshold: v })} />
+            <ParamRow label="Espacement" value={(p.gridSpacing ?? 16) + 'px'}>
+              <Slider min={4} max={64} step={2} value={p.gridSpacing ?? 16} onChange={v => update({ gridSpacing: v })} />
             </ParamRow>
-            <ParamRow label="Couleur contour">
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input type="color" value={p.edgeColor ?? '#ffffff'} onChange={e => update({ edgeColor: e.target.value })} />
-                <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--gm-muted)' }}>{(p.edgeColor ?? '#ffffff').toUpperCase()}</span>
-              </div>
-            </ParamRow>
-          </>
-        )}
-        <ParamRow label="">
-          <Toggle value={p.pixelSort ?? false} onChange={v => update({ pixelSort: v })} label="Pixel sort" />
-          {(p.pixelSort ?? false) && <Tip text="Trie les pixels de chaque ligne (ou colonne) par luminosité — crée un effet de ruissellement caractéristique du glitch art." />}
-        </ParamRow>
-        {p.pixelSort && (
-          <>
-            <ParamRow label="Axe">
-              <div style={{ display: 'flex', gap: 6 }}>
-                {(['horizontal', 'vertical'] as const).map(a => (
-                  <button key={a} className={`btn${(p.pixelSortAxis ?? 'horizontal') === a ? ' active' : ''}`}
-                    style={{ flex: 1, fontSize: 10 }} onClick={() => update({ pixelSortAxis: a })}>
-                    {a === 'horizontal' ? 'HORIZONTAL' : 'VERTICAL'}
-                  </button>
-                ))}
-              </div>
-            </ParamRow>
-            <ParamRow label="Seuil" value={p.pixelSortThreshold ?? 128}>
-              <Slider min={0} max={255} value={p.pixelSortThreshold ?? 128} onChange={v => update({ pixelSortThreshold: v })} />
+            <ParamRow label="Opacité" value={Math.round((p.gridOpacity ?? 0.2) * 100) + '%'}>
+              <Slider min={0} max={1} step={0.05} value={p.gridOpacity ?? 0.2} onChange={v => update({ gridOpacity: v })} />
             </ParamRow>
           </>
         )}
@@ -1045,6 +1012,972 @@ function TopoPanel() {
   );
 }
 
+// ─── Halftone panel ───────────────────────────────────────────────────────────
+
+function HalftonePanel() {
+  const { params, updateParams } = useApp();
+  const p = params.halftone as HalftoneParams;
+  const update = (partial: Partial<HalftoneParams>) => updateParams('halftone', partial);
+
+  const presets = [
+    { label: 'JOURNAL', apply: () => update({ mode: 'mono', dotShape: 'circle', gridSize: 6, angle: 15, invert: false, bgColor: '#ffffff', fgColor: '#000000', gamma: 1.2 }) },
+    { label: 'CMYK', apply: () => update({ mode: 'cmyk', dotShape: 'circle', gridSize: 8, angle: 15, invert: false, bgColor: '#ffffff', fgColor: '#000000', gamma: 1 }) },
+    { label: 'SERIGRAPHIE', apply: () => update({ mode: 'mono', dotShape: 'circle', gridSize: 12, angle: 0, invert: false, bgColor: '#f5e6c8', fgColor: '#1a1a2e', gamma: 1.5 }) },
+    { label: 'NÉGATIF', apply: () => update({ mode: 'mono', dotShape: 'circle', gridSize: 8, angle: 15, invert: true, bgColor: '#000000', fgColor: '#ffffff', gamma: 1 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Trame" defaultOpen>
+        <ParamRow label="Mode">
+          <select value={p.mode} onChange={e => update({ mode: e.target.value as HalftoneParams['mode'] })}>
+            <option value="mono">MONO</option>
+            <option value="cmyk">CMYK (4 angles)</option>
+            <option value="rgb">RVB</option>
+            <option value="custom">PERSONNALISÉ</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Forme points">
+          <select value={p.dotShape} onChange={e => update({ dotShape: e.target.value as HalftoneParams['dotShape'] })}>
+            <option value="circle">CERCLE</option>
+            <option value="ellipse">ELLIPSE</option>
+            <option value="line">LIGNE</option>
+            <option value="diamond">DIAMANT</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Taille grille" value={p.gridSize + 'px'}>
+          <Slider min={2} max={40} value={p.gridSize} onChange={v => update({ gridSize: v })} />
+        </ParamRow>
+        <ParamRow label="Angle" value={p.angle + '°'}>
+          <Slider min={0} max={90} value={p.angle} onChange={v => update({ angle: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.invert} onChange={v => update({ invert: v })} label="Inverser" />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.softEdge} onChange={v => update({ softEdge: v })} label="Bords doux" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs" defaultOpen>
+        <ParamRow label="Fond">
+          <input type="color" value={p.bgColor} onChange={e => update({ bgColor: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="Points">
+          <input type="color" value={p.fgColor} onChange={e => update({ fgColor: e.target.value })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Ajustements">
+        <ParamRow label="Gamma" value={p.gamma.toFixed(2)}>
+          <Slider min={0.5} max={3} step={0.05} value={p.gamma} onChange={v => update({ gamma: v })} />
+        </ParamRow>
+        <ParamRow label="Contraste" value={p.contrast}>
+          <Slider min={-50} max={50} value={p.contrast} onChange={v => update({ contrast: v })} />
+        </ParamRow>
+        <ParamRow label="Luminosité" value={p.brightness}>
+          <Slider min={-50} max={50} value={p.brightness} onChange={v => update({ brightness: v })} />
+        </ParamRow>
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Matrix Rain panel ────────────────────────────────────────────────────────
+
+function MatrixRainPanel() {
+  const { params, updateParams } = useApp();
+  const p = params['matrix-rain'] as MatrixRainParams;
+  const update = (partial: Partial<MatrixRainParams>) => updateParams('matrix-rain', partial);
+
+  const presets = [
+    { label: 'MATRIX', apply: () => update({ chars: 'default', color: '#00ff41', bgColor: '#000000', fontSize: 14, density: 80, speed: 1, trailLength: 0.88, glowEffect: true }) },
+    { label: 'ROUGE', apply: () => update({ chars: 'default', color: '#ff2222', bgColor: '#0a0000', fontSize: 12, density: 70, speed: 1.5, trailLength: 0.9, glowEffect: true }) },
+    { label: 'BINAIRE', apply: () => update({ chars: '01', color: '#00ccff', bgColor: '#000814', fontSize: 16, density: 90, speed: 0.8, trailLength: 0.85, glowEffect: false }) },
+    { label: 'FANTÔME', apply: () => update({ chars: 'default', color: '#aaaaff', bgColor: '#000000', fontSize: 10, density: 60, speed: 0.5, trailLength: 0.95, glowEffect: true, bgOpacity: 0.96 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Caractères" defaultOpen>
+        <ParamRow label="Charset">
+          <select value={p.chars} onChange={e => update({ chars: e.target.value })}>
+            <option value="default">KATAKANA (Matrix)</option>
+            <option value="digits">CHIFFRES 0-9</option>
+            <option value="binary">BINAIRE 01</option>
+            <option value="latin">LATIN a-z A-Z</option>
+            <option value="hex">HEXADÉCIMAL</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Taille" value={p.fontSize + 'px'}>
+          <Slider min={6} max={32} value={p.fontSize} onChange={v => update({ fontSize: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Pluie" defaultOpen>
+        <ParamRow label="Vitesse" value={p.speed.toFixed(1) + 'x'}>
+          <Slider min={0.2} max={5} step={0.1} value={p.speed} onChange={v => update({ speed: v })} />
+        </ParamRow>
+        <ParamRow label="Densité" value={p.density + '%'}>
+          <Slider min={20} max={100} value={p.density} onChange={v => update({ density: v })} />
+        </ParamRow>
+        <ParamRow label="Traîne" value={(p.trailLength * 100).toFixed(0) + '%'} tip="Persistance de la traîne lumineuse. Plus élevé = traîne plus longue.">
+          <Slider min={0.1} max={0.98} step={0.01} value={p.trailLength} onChange={v => update({ trailLength: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Visuel" defaultOpen>
+        <ParamRow label="Couleur">
+          <input type="color" value={p.color} onChange={e => update({ color: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="Fond">
+          <input type="color" value={p.bgColor} onChange={e => update({ bgColor: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="Opacité fond" value={Math.round(p.bgOpacity * 100) + '%'}>
+          <Slider min={0.7} max={1} step={0.01} value={p.bgOpacity} onChange={v => update({ bgOpacity: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.glowEffect} onChange={v => update({ glowEffect: v })} label="Effet glow" />
+        </ParamRow>
+        <ParamRow label="Variance couleur" value={(p.colorVariance * 100).toFixed(0) + '%'}>
+          <Slider min={0} max={0.5} step={0.01} value={p.colorVariance} onChange={v => update({ colorVariance: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="SEED">
+        <ParamRow label="SEED" value={p.seed}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input type="number" value={p.seed} onChange={e => update({ seed: Number(e.target.value) })} style={{ flex: 1 }} />
+            <button className="btn" style={{ fontSize: 10, padding: '4px 8px' }} onClick={() => update({ seed: Math.floor(Math.random() * 99999) })}>RNG</button>
+          </div>
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Dots panel ───────────────────────────────────────────────────────────────
+
+function DotsPanel() {
+  const { params, updateParams } = useApp();
+  const p = params.dots as DotsParams;
+  const update = (partial: Partial<DotsParams>) => updateParams('dots', partial);
+
+  const presets = [
+    { label: 'POP ART', apply: () => update({ gridType: 'square', dotSize: 5, spacing: 10, colorMode: 'original', dotShape: 'circle', sizeByLum: true, invert: false }) },
+    { label: 'HEX BIO', apply: () => update({ gridType: 'hex', dotSize: 4, spacing: 9, colorMode: 'original', dotShape: 'circle', sizeByLum: true, invert: false }) },
+    { label: 'LICHTENSTEIN', apply: () => update({ gridType: 'square', dotSize: 8, spacing: 12, colorMode: 'accent', accentColor: '#ff0080', bgColor: '#ffffff', dotShape: 'circle', sizeByLum: true }) },
+    { label: 'RASTER', apply: () => update({ gridType: 'square', dotSize: 3, spacing: 6, colorMode: 'original', dotShape: 'square', sizeByLum: true, angle: 45 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Grille" defaultOpen>
+        <ParamRow label="Type">
+          <select value={p.gridType} onChange={e => update({ gridType: e.target.value as DotsParams['gridType'] })}>
+            <option value="square">CARRÉ</option>
+            <option value="hex">HEXAGONAL</option>
+            <option value="triangular">TRIANGULAIRE</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Espacement" value={p.spacing + 'px'}>
+          <Slider min={3} max={40} value={p.spacing} onChange={v => update({ spacing: v })} />
+        </ParamRow>
+        <ParamRow label="Angle" value={p.angle + '°'}>
+          <Slider min={0} max={90} value={p.angle} onChange={v => update({ angle: v })} />
+        </ParamRow>
+        <ParamRow label="Jitter" value={(p.jitter * 100).toFixed(0) + '%'}>
+          <Slider min={0} max={0.5} step={0.01} value={p.jitter} onChange={v => update({ jitter: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Points" defaultOpen>
+        <ParamRow label="Forme">
+          <select value={p.dotShape} onChange={e => update({ dotShape: e.target.value as DotsParams['dotShape'] })}>
+            <option value="circle">CERCLE</option>
+            <option value="square">CARRÉ</option>
+            <option value="diamond">DIAMANT</option>
+            <option value="triangle">TRIANGLE</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Taille" value={p.dotSize + 'px'}>
+          <Slider min={1} max={20} value={p.dotSize} onChange={v => update({ dotSize: v })} />
+        </ParamRow>
+        <ParamRow label="Taille min" value={(p.minSize * 100).toFixed(0) + '%'}>
+          <Slider min={0} max={1} step={0.1} value={p.minSize} onChange={v => update({ minSize: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.sizeByLum} onChange={v => update({ sizeByLum: v })} label="Taille par luminance" />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.invert} onChange={v => update({ invert: v })} label="Inverser" />
+        </ParamRow>
+        <ParamRow label="Opacité" value={p.opacity + '%'}>
+          <Slider min={10} max={100} value={p.opacity} onChange={v => update({ opacity: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs">
+        <ParamRow label="Mode couleur">
+          <select value={p.colorMode} onChange={e => update({ colorMode: e.target.value as DotsParams['colorMode'] })}>
+            <option value="original">COULEUR ORIGINALE</option>
+            <option value="accent">ACCENT</option>
+            <option value="mono">MONO</option>
+            <option value="hue-shift">DÉCALAGE TEINTE</option>
+          </select>
+        </ParamRow>
+        {(p.colorMode === 'accent') && (
+          <ParamRow label="Couleur accent">
+            <input type="color" value={p.accentColor} onChange={e => update({ accentColor: e.target.value })} />
+          </ParamRow>
+        )}
+        <ParamRow label="Fond">
+          <input type="color" value={p.bgColor} onChange={e => update({ bgColor: e.target.value })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Contour panel ────────────────────────────────────────────────────────────
+
+function ContourPanel() {
+  const { params, updateParams } = useApp();
+  const p = params.contour as ContourParams;
+  const update = (partial: Partial<ContourParams>) => updateParams('contour', partial);
+
+  const presets = [
+    { label: 'GRAVURE', apply: () => update({ mode: 'sobel', threshold: 30, lineColor: '#000000', bgColor: '#f5e6c8', lineWidth: 1, smooth: false, colorize: false, blendOriginal: 0 }) },
+    { label: 'NÉON', apply: () => update({ mode: 'sobel', threshold: 25, lineColor: '#00ffaa', bgColor: '#000000', lineWidth: 1.5, smooth: true, colorize: false, blendOriginal: 0 }) },
+    { label: 'OVERLAY', apply: () => update({ mode: 'laplacian', threshold: 40, lineColor: '#ffffff', bgTransparent: true, lineWidth: 1, smooth: false, colorize: false, blendOriginal: 60 }) },
+    { label: 'MANGA', apply: () => update({ mode: 'sobel', threshold: 20, lineColor: '#000000', bgColor: '#ffffff', lineWidth: 1, smooth: true, colorize: false, blendOriginal: 0 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Détection" defaultOpen>
+        <ParamRow label="Mode">
+          <select value={p.mode} onChange={e => update({ mode: e.target.value as ContourParams['mode'] })}>
+            <option value="sobel">SOBEL</option>
+            <option value="laplacian">LAPLACIAN</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Seuil" value={p.threshold}>
+          <Slider min={5} max={200} value={p.threshold} onChange={v => update({ threshold: v })} />
+        </ParamRow>
+        <ParamRow label="Épaisseur" value={(p.lineWidth ?? 1).toFixed(1)}>
+          <Slider min={0.5} max={5} step={0.5} value={p.lineWidth ?? 1} onChange={v => update({ lineWidth: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.smooth ?? false} onChange={v => update({ smooth: v })} label="Lissage" />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.invertEdges ?? false} onChange={v => update({ invertEdges: v })} label="Inverser" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs" defaultOpen>
+        <ParamRow label="Lignes">
+          <input type="color" value={p.lineColor} onChange={e => update({ lineColor: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.bgTransparent ?? false} onChange={v => update({ bgTransparent: v })} label="Fond transparent" />
+        </ParamRow>
+        {!(p.bgTransparent ?? false) && (
+          <ParamRow label="Fond">
+            <input type="color" value={p.bgColor} onChange={e => update({ bgColor: e.target.value })} />
+          </ParamRow>
+        )}
+        <ParamRow label="">
+          <Toggle value={p.colorize ?? false} onChange={v => update({ colorize: v })} label="Coloriser par angle" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Pixel Sort panel ─────────────────────────────────────────────────────────
+
+function PixelSortPanel() {
+  const { params, updateParams } = useApp();
+  const p = params['pixel-sort'] as PixelSortParams;
+  const update = (partial: Partial<PixelSortParams>) => updateParams('pixel-sort', partial);
+
+  const presets = [
+    { label: 'GLITCH H', apply: () => update({ axis: 'horizontal', threshold: 80, mode: 'luminance', direction: 'ascending', segmented: true }) },
+    { label: 'GLITCH V', apply: () => update({ axis: 'vertical', threshold: 100, mode: 'luminance', direction: 'ascending', segmented: true }) },
+    { label: 'SATURÉ', apply: () => update({ axis: 'horizontal', threshold: 60, mode: 'saturation', direction: 'descending', segmented: true }) },
+    { label: 'TEINTE', apply: () => update({ axis: 'horizontal', threshold: 50, mode: 'hue', direction: 'ascending', segmented: false }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Tri" defaultOpen>
+        <ParamRow label="Axe">
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['horizontal', 'vertical', 'both'] as const).map(a => (
+              <button key={a} className={`btn${p.axis === a ? ' active' : ''}`}
+                style={{ flex: 1, fontSize: 9 }} onClick={() => update({ axis: a })}>
+                {a === 'horizontal' ? 'H' : a === 'vertical' ? 'V' : 'B'}
+              </button>
+            ))}
+          </div>
+        </ParamRow>
+        <ParamRow label="Mode tri">
+          <select value={p.mode} onChange={e => update({ mode: e.target.value as PixelSortParams['mode'] })}>
+            <option value="luminance">LUMINANCE</option>
+            <option value="hue">TEINTE</option>
+            <option value="saturation">SATURATION</option>
+            <option value="red">ROUGE</option>
+            <option value="green">VERT</option>
+            <option value="blue">BLEU</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Direction">
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['ascending', 'descending'] as const).map(d => (
+              <button key={d} className={`btn${p.direction === d ? ' active' : ''}`}
+                style={{ flex: 1, fontSize: 10 }} onClick={() => update({ direction: d })}>
+                {d === 'ascending' ? 'ASC ↑' : 'DESC ↓'}
+              </button>
+            ))}
+          </div>
+        </ParamRow>
+        <ParamRow label="Seuil" value={p.threshold}>
+          <Slider min={0} max={255} value={p.threshold} onChange={v => update({ threshold: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.segmented} onChange={v => update({ segmented: v })} label="Segmenté (par intervalles)" />
+        </ParamRow>
+        <ParamRow label="Skip chance" value={Math.round(p.skipChance * 100) + '%'} tip="Probabilité de sauter un segment.">
+          <Slider min={0} max={0.9} step={0.05} value={p.skipChance} onChange={v => update({ skipChance: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Blockify panel ───────────────────────────────────────────────────────────
+
+function BlockifyPanel() {
+  const { params, updateParams } = useApp();
+  const p = params.blockify as BlockifyParams;
+  const update = (partial: Partial<BlockifyParams>) => updateParams('blockify', partial);
+
+  const presets = [
+    { label: 'PIXEL ART', apply: () => update({ blockSize: 8, samplingMode: 'average', colorMode: 'original', levels: 16, edgeHighlight: false }) },
+    { label: 'MOSAÏQUE', apply: () => update({ blockSize: 20, samplingMode: 'average', colorMode: 'quantize', levels: 8, edgeHighlight: true, edgeColor: '#000000', edgeWidth: 1 }) },
+    { label: 'MINECRAFT', apply: () => update({ blockSize: 16, samplingMode: 'center', colorMode: 'quantize', levels: 6, edgeHighlight: true, edgeColor: '#000000', edgeWidth: 2 }) },
+    { label: 'FAUVISME', apply: () => update({ blockSize: 24, samplingMode: 'average', colorMode: 'quantize', levels: 5, edgeHighlight: true, edgeColor: '#333333', edgeWidth: 1 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Blocs" defaultOpen>
+        <ParamRow label="Taille bloc" value={p.blockSize + 'px'}>
+          <Slider min={2} max={64} step={2} value={p.blockSize} onChange={v => update({ blockSize: v })} />
+        </ParamRow>
+        <ParamRow label="Échantillonnage">
+          <select value={p.samplingMode} onChange={e => update({ samplingMode: e.target.value as BlockifyParams['samplingMode'] })}>
+            <option value="average">MOYENNE</option>
+            <option value="center">CENTRE</option>
+            <option value="dominant">COULEUR DOMINANTE</option>
+          </select>
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs" defaultOpen>
+        <ParamRow label="Mode couleur">
+          <select value={p.colorMode} onChange={e => update({ colorMode: e.target.value as BlockifyParams['colorMode'] })}>
+            <option value="original">ORIGINALE</option>
+            <option value="quantize">QUANTIFIÉE</option>
+            <option value="mono">MONO</option>
+          </select>
+        </ParamRow>
+        {p.colorMode === 'quantize' && (
+          <ParamRow label="Niveaux" value={p.levels}>
+            <Slider min={2} max={32} value={p.levels} onChange={v => update({ levels: v })} />
+          </ParamRow>
+        )}
+      </Accordion>
+      <Accordion label="Contours">
+        <ParamRow label="">
+          <Toggle value={p.edgeHighlight} onChange={v => update({ edgeHighlight: v })} label="Contours de blocs" />
+        </ParamRow>
+        {p.edgeHighlight && (
+          <>
+            <ParamRow label="Couleur contour">
+              <input type="color" value={p.edgeColor} onChange={e => update({ edgeColor: e.target.value })} />
+            </ParamRow>
+            <ParamRow label="Épaisseur" value={p.edgeWidth + 'px'}>
+              <Slider min={1} max={4} value={p.edgeWidth} onChange={v => update({ edgeWidth: v })} />
+            </ParamRow>
+          </>
+        )}
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Threshold Effect panel ───────────────────────────────────────────────────
+
+function ThresholdEffectPanel() {
+  const { params, updateParams } = useApp();
+  const p = params['threshold-effect'] as ThresholdEffectParams;
+  const update = (partial: Partial<ThresholdEffectParams>) => updateParams('threshold-effect', partial);
+
+  const presets = [
+    { label: 'N/B DUR', apply: () => update({ mode: 'binary', threshold: 128, colorA: '#000000', colorB: '#ffffff', invert: false }) },
+    { label: 'SÉRIGRAPHIE', apply: () => update({ mode: 'binary', threshold: 100, colorA: '#0d0221', colorB: '#ff1493', invert: false, blendOriginal: 10 }) },
+    { label: 'MULTI', apply: () => update({ mode: 'multi', levels: 4, colorA: '#000000', colorB: '#ffffff', colorC: '#888888' }) },
+    { label: 'DUOTONE', apply: () => update({ mode: 'duotone', threshold: 128, colorA: '#1a0533', colorB: '#ff80ab' }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Mode" defaultOpen>
+        <ParamRow label="Type">
+          <select value={p.mode} onChange={e => update({ mode: e.target.value as ThresholdEffectParams['mode'] })}>
+            <option value="binary">BINAIRE</option>
+            <option value="adaptive">ADAPTATIF</option>
+            <option value="multi">MULTI-NIVEAUX</option>
+            <option value="duotone">DUOTONE</option>
+          </select>
+        </ParamRow>
+        {(p.mode === 'binary' || p.mode === 'duotone') && (
+          <ParamRow label="Seuil" value={p.threshold}>
+            <Slider min={0} max={255} value={p.threshold} onChange={v => update({ threshold: v })} />
+          </ParamRow>
+        )}
+        {p.mode === 'adaptive' && (
+          <>
+            <ParamRow label="Rayon" value={p.adaptiveRadius + 'px'}>
+              <Slider min={3} max={50} step={2} value={p.adaptiveRadius} onChange={v => update({ adaptiveRadius: v })} />
+            </ParamRow>
+            <ParamRow label="Offset" value={p.adaptiveOffset}>
+              <Slider min={-50} max={50} value={p.adaptiveOffset} onChange={v => update({ adaptiveOffset: v })} />
+            </ParamRow>
+          </>
+        )}
+        {p.mode === 'multi' && (
+          <ParamRow label="Niveaux" value={p.levels}>
+            <Slider min={2} max={8} value={p.levels} onChange={v => update({ levels: v })} />
+          </ParamRow>
+        )}
+        <ParamRow label="">
+          <Toggle value={p.invert} onChange={v => update({ invert: v })} label="Inverser" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs" defaultOpen>
+        <ParamRow label="Couleur A (ombres)">
+          <input type="color" value={p.colorA} onChange={e => update({ colorA: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="Couleur B (lumières)">
+          <input type="color" value={p.colorB} onChange={e => update({ colorB: e.target.value })} />
+        </ParamRow>
+        {p.mode === 'multi' && (
+          <ParamRow label="Couleur C (tons moyens)">
+            <input type="color" value={p.colorC} onChange={e => update({ colorC: e.target.value })} />
+          </ParamRow>
+        )}
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Edge Detection panel ─────────────────────────────────────────────────────
+
+function EdgeDetectionPanel() {
+  const { params, updateParams } = useApp();
+  const p = params['edge-detection'] as EdgeDetectionParams;
+  const update = (partial: Partial<EdgeDetectionParams>) => updateParams('edge-detection', partial);
+
+  const presets = [
+    { label: 'GRAVURE', apply: () => update({ algorithm: 'sobel', threshold: 50, mode: 'on-black', edgeColor: '#ffffff', bgColor: '#000000', lineWidth: 1, invert: false }) },
+    { label: 'CRAYON', apply: () => update({ algorithm: 'prewitt', threshold: 40, mode: 'on-white', edgeColor: '#222222', bgColor: '#f5f0e8', lineWidth: 0.8, invert: false }) },
+    { label: 'NÉON', apply: () => update({ algorithm: 'sobel', threshold: 30, mode: 'on-black', edgeColor: '#00ffaa', bgColor: '#000000', lineWidth: 1.5, invert: false, blendOriginal: 0 }) },
+    { label: 'OVERLAY', apply: () => update({ algorithm: 'laplacian', threshold: 60, mode: 'on-original', edgeColor: '#ff00ff', bgColor: '#000000', lineWidth: 1, blendOriginal: 70 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Algorithme" defaultOpen>
+        <ParamRow label="Filtre">
+          <select value={p.algorithm} onChange={e => update({ algorithm: e.target.value as EdgeDetectionParams['algorithm'] })}>
+            <option value="sobel">SOBEL</option>
+            <option value="prewitt">PREWITT</option>
+            <option value="laplacian">LAPLACIEN</option>
+            <option value="roberts">ROBERTS CROSS</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Seuil" value={p.threshold}>
+          <Slider min={5} max={255} value={p.threshold} onChange={v => update({ threshold: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.luminanceOnly} onChange={v => update({ luminanceOnly: v })} label="Luminance seulement" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Rendu" defaultOpen>
+        <ParamRow label="Mode">
+          <select value={p.mode} onChange={e => update({ mode: e.target.value as EdgeDetectionParams['mode'] })}>
+            <option value="on-black">SUR FOND NOIR</option>
+            <option value="on-white">SUR FOND BLANC</option>
+            <option value="overlay">OVERLAY</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.colorByAngle} onChange={v => update({ colorByAngle: v })} label="Couleur par angle" />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.invert} onChange={v => update({ invert: v })} label="Inverser" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs">
+        <ParamRow label="Contours">
+          <input type="color" value={p.edgeColor} onChange={e => update({ edgeColor: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="Fond">
+          <input type="color" value={p.bgColor} onChange={e => update({ bgColor: e.target.value })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Crosshatch panel ─────────────────────────────────────────────────────────
+
+function CrosshatchPanel() {
+  const { params, updateParams } = useApp();
+  const p = params.crosshatch as CrosshatchParams;
+  const update = (partial: Partial<CrosshatchParams>) => updateParams('crosshatch', partial);
+
+  const presets = [
+    { label: 'CRAYON', apply: () => update({ layers: 2, angle1: 45, angle2: 135, spacing: 8, lineWidth: 0.8, color: '#1a1a1a', bgColor: '#f5f0e8', bgTransparent: false, lumDriven: true }) },
+    { label: 'GRAVURE', apply: () => update({ layers: 3, angle1: 30, angle2: 120, angle3: 75, spacing: 6, lineWidth: 0.6, color: '#000000', bgColor: '#f5e6c8', bgTransparent: false, lumDriven: true }) },
+    { label: 'OVERLAY', apply: () => update({ layers: 2, angle1: 45, angle2: 135, spacing: 10, lineWidth: 1, color: '#ffffff', bgTransparent: true, lumDriven: true, blendOriginal: 70 }) },
+    { label: 'MANGA', apply: () => update({ layers: 1, angle1: 45, angle2: 135, spacing: 5, lineWidth: 0.7, color: '#000000', bgColor: '#ffffff', bgTransparent: false, lumDriven: true }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Hachures" defaultOpen>
+        <ParamRow label="Couches" value={p.layers}>
+          <Slider min={1} max={4} value={p.layers} onChange={v => update({ layers: v })} />
+        </ParamRow>
+        <ParamRow label="Angle 1" value={p.angle1 + '°'}>
+          <Slider min={0} max={180} value={p.angle1} onChange={v => update({ angle1: v })} />
+        </ParamRow>
+        {p.layers >= 2 && (
+          <ParamRow label="Angle 2" value={p.angle2 + '°'}>
+            <Slider min={0} max={180} value={p.angle2} onChange={v => update({ angle2: v })} />
+          </ParamRow>
+        )}
+        {p.layers >= 3 && (
+          <ParamRow label="Angle 3" value={p.angle3 + '°'}>
+            <Slider min={0} max={180} value={p.angle3} onChange={v => update({ angle3: v })} />
+          </ParamRow>
+        )}
+        {p.layers >= 4 && (
+          <ParamRow label="Angle 4" value={p.angle4 + '°'}>
+            <Slider min={0} max={180} value={p.angle4} onChange={v => update({ angle4: v })} />
+          </ParamRow>
+        )}
+        <ParamRow label="Espacement min" value={p.minSpacing + 'px'}>
+          <Slider min={1} max={10} value={p.minSpacing} onChange={v => update({ minSpacing: v })} />
+        </ParamRow>
+        <ParamRow label="Espacement max" value={p.maxSpacing + 'px'}>
+          <Slider min={5} max={40} value={p.maxSpacing} onChange={v => update({ maxSpacing: v })} />
+        </ParamRow>
+        <ParamRow label="Épaisseur" value={p.lineWidth.toFixed(1)}>
+          <Slider min={0.3} max={3} step={0.1} value={p.lineWidth} onChange={v => update({ lineWidth: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.lumDriven} onChange={v => update({ lumDriven: v })} label="Espacement par luminance" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs" defaultOpen>
+        <ParamRow label="Lignes">
+          <input type="color" value={p.color} onChange={e => update({ color: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.bgTransparent} onChange={v => update({ bgTransparent: v })} label="Fond transparent" />
+        </ParamRow>
+        {!p.bgTransparent && (
+          <ParamRow label="Fond">
+            <input type="color" value={p.bgColor} onChange={e => update({ bgColor: e.target.value })} />
+          </ParamRow>
+        )}
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Contraste" value={p.contrast}>
+          <Slider min={-50} max={100} value={p.contrast} onChange={v => update({ contrast: v })} />
+        </ParamRow>
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Wave Lines panel ─────────────────────────────────────────────────────────
+
+function WaveLinesPanel() {
+  const { params, updateParams } = useApp();
+  const p = params['wave-lines'] as WaveLinesParams;
+  const update = (partial: Partial<WaveLinesParams>) => updateParams('wave-lines', partial);
+
+  const presets = [
+    { label: 'SINUS', apply: () => update({ waveType: 'sine', lineCount: 50, amplitude: 20, frequency: 3, lineWidth: 1, color: '#ffffff', bgColor: '#000000', bgTransparent: false, colorMode: 'solid', lumDriven: false }) },
+    { label: 'RELIEF', apply: () => update({ waveType: 'noise', lineCount: 80, amplitude: 30, frequency: 2, lineWidth: 0.8, color: '#aaffee', bgColor: '#000000', bgTransparent: false, colorMode: 'gradient', gradientA: '#00ff88', gradientB: '#0044ff', lumDriven: true }) },
+    { label: 'RÉTRO', apply: () => update({ waveType: 'sawtooth', lineCount: 40, amplitude: 25, frequency: 5, lineWidth: 1.5, color: '#ff80ab', bgColor: '#0d0221', bgTransparent: false, colorMode: 'solid', lumDriven: false }) },
+    { label: 'OVERLAY', apply: () => update({ waveType: 'sine', lineCount: 60, amplitude: 15, frequency: 4, lineWidth: 0.7, colorMode: 'solid', color: '#ff00ff', bgTransparent: true, lumDriven: true, blendOriginal: 50 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Vague" defaultOpen>
+        <ParamRow label="Type">
+          <select value={p.waveType} onChange={e => update({ waveType: e.target.value as WaveLinesParams['waveType'] })}>
+            <option value="sine">SINUS</option>
+            <option value="noise">BRUIT (perlin)</option>
+            <option value="square">CARRÉ</option>
+            <option value="sawtooth">DENT DE SCIE</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Nombre de lignes" value={p.lineCount}>
+          <Slider min={10} max={200} value={p.lineCount} onChange={v => update({ lineCount: v })} />
+        </ParamRow>
+        <ParamRow label="Amplitude" value={p.amplitude + 'px'}>
+          <Slider min={0} max={100} value={p.amplitude} onChange={v => update({ amplitude: v })} />
+        </ParamRow>
+        <ParamRow label="Fréquence" value={p.frequency.toFixed(1)}>
+          <Slider min={0.5} max={20} step={0.5} value={p.frequency} onChange={v => update({ frequency: v })} />
+        </ParamRow>
+        <ParamRow label="Phase" value={p.phase.toFixed(2)}>
+          <Slider min={0} max={Math.PI * 2} step={0.1} value={p.phase} onChange={v => update({ phase: v })} />
+        </ParamRow>
+        {p.waveType === 'noise' && (
+          <ParamRow label="Échelle bruit" value={p.noiseScale.toFixed(1)}>
+            <Slider min={0.5} max={10} step={0.5} value={p.noiseScale} onChange={v => update({ noiseScale: v })} />
+          </ParamRow>
+        )}
+        <ParamRow label="">
+          <Toggle value={p.lumDriven} onChange={v => update({ lumDriven: v })} label="Amplitude par luminance" />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Couleurs" defaultOpen>
+        <ParamRow label="Mode">
+          <select value={p.colorMode} onChange={e => update({ colorMode: e.target.value as WaveLinesParams['colorMode'] })}>
+            <option value="solid">UNIFORME</option>
+            <option value="gradient">DÉGRADÉ</option>
+            <option value="image">IMAGE SOURCE</option>
+          </select>
+        </ParamRow>
+        {p.colorMode === 'solid' && (
+          <ParamRow label="Couleur">
+            <input type="color" value={p.color} onChange={e => update({ color: e.target.value })} />
+          </ParamRow>
+        )}
+        {p.colorMode === 'gradient' && (
+          <>
+            <ParamRow label="Couleur A">
+              <input type="color" value={p.gradientA} onChange={e => update({ gradientA: e.target.value })} />
+            </ParamRow>
+            <ParamRow label="Couleur B">
+              <input type="color" value={p.gradientB} onChange={e => update({ gradientB: e.target.value })} />
+            </ParamRow>
+          </>
+        )}
+        <ParamRow label="">
+          <Toggle value={p.bgTransparent} onChange={v => update({ bgTransparent: v })} label="Fond transparent" />
+        </ParamRow>
+        {!p.bgTransparent && (
+          <ParamRow label="Fond">
+            <input type="color" value={p.bgColor} onChange={e => update({ bgColor: e.target.value })} />
+          </ParamRow>
+        )}
+        <ParamRow label="">
+          <Toggle value={p.invert} onChange={v => update({ invert: v })} label="Inverser" />
+        </ParamRow>
+        <ParamRow label="Épaisseur" value={p.lineWidth.toFixed(1)}>
+          <Slider min={0.3} max={5} step={0.1} value={p.lineWidth} onChange={v => update({ lineWidth: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Noise Field panel ────────────────────────────────────────────────────────
+
+function NoiseFieldPanel() {
+  const { params, updateParams } = useApp();
+  const p = params['noise-field'] as NoiseFieldParams;
+  const update = (partial: Partial<NoiseFieldParams>) => updateParams('noise-field', partial);
+
+  const presets = [
+    { label: 'BRUME', apply: () => update({ noiseType: 'fractal', scale: 4, octaves: 4, persistence: 0.5, colorMode: 'grayscale', blendMode: 'overlay', blendOriginal: 60 }) },
+    { label: 'MAGMA', apply: () => update({ noiseType: 'domain-warp', scale: 3, octaves: 5, persistence: 0.6, colorMode: 'custom', colorA: '#000000', colorB: '#ff4400', blendMode: 'normal', blendOriginal: 0 }) },
+    { label: 'PLASMA', apply: () => update({ noiseType: 'fractal', scale: 6, octaves: 3, persistence: 0.45, colorMode: 'custom', colorA: '#0d0221', colorB: '#ff00ff', blendMode: 'normal', blendOriginal: 0 }) },
+    { label: 'TEXTURE', apply: () => update({ noiseType: 'value', scale: 8, octaves: 1, persistence: 0.5, colorMode: 'grayscale', blendMode: 'multiply', blendOriginal: 50 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Bruit" defaultOpen>
+        <ParamRow label="Type">
+          <select value={p.noiseType} onChange={e => update({ noiseType: e.target.value as NoiseFieldParams['noiseType'] })}>
+            <option value="fractal">FRACTAL (fBm)</option>
+            <option value="value">VALUE NOISE</option>
+            <option value="domain-warp">DOMAIN WARP</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Échelle" value={p.scale.toFixed(1)}>
+          <Slider min={0.5} max={20} step={0.5} value={p.scale} onChange={v => update({ scale: v })} />
+        </ParamRow>
+        {p.noiseType !== 'value' && (
+          <>
+            <ParamRow label="Octaves" value={p.octaves}>
+              <Slider min={1} max={8} value={p.octaves} onChange={v => update({ octaves: v })} />
+            </ParamRow>
+            <ParamRow label="Persistance" value={p.persistence.toFixed(2)}>
+              <Slider min={0.1} max={0.9} step={0.05} value={p.persistence} onChange={v => update({ persistence: v })} />
+            </ParamRow>
+            <ParamRow label="Lacunarité" value={p.lacunarity.toFixed(1)}>
+              <Slider min={1.5} max={4} step={0.1} value={p.lacunarity} onChange={v => update({ lacunarity: v })} />
+            </ParamRow>
+          </>
+        )}
+      </Accordion>
+      <Accordion label="Couleurs" defaultOpen>
+        <ParamRow label="Mode">
+          <select value={p.colorMode} onChange={e => update({ colorMode: e.target.value as NoiseFieldParams['colorMode'] })}>
+            <option value="grayscale">NIVEAUX DE GRIS</option>
+            <option value="custom">PALETTE</option>
+          </select>
+        </ParamRow>
+        {p.colorMode === 'custom' && (
+          <>
+            <ParamRow label="Couleur A (ombres)">
+              <input type="color" value={p.colorA} onChange={e => update({ colorA: e.target.value })} />
+            </ParamRow>
+            <ParamRow label="Couleur B (lumières)">
+              <input type="color" value={p.colorB} onChange={e => update({ colorB: e.target.value })} />
+            </ParamRow>
+          </>
+        )}
+      </Accordion>
+      <Accordion label="Mélange" defaultOpen>
+        <ParamRow label="Mode blend">
+          <select value={p.blendMode} onChange={e => update({ blendMode: e.target.value as NoiseFieldParams['blendMode'] })}>
+            <option value="normal">NORMAL</option>
+            <option value="multiply">MULTIPLY</option>
+            <option value="screen">SCREEN</option>
+            <option value="overlay">OVERLAY</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+        <ParamRow label="Luminosité" value={p.brightness}>
+          <Slider min={-100} max={100} value={p.brightness} onChange={v => update({ brightness: v })} />
+        </ParamRow>
+        <ParamRow label="Contraste" value={p.contrast}>
+          <Slider min={-100} max={100} value={p.contrast} onChange={v => update({ contrast: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="SEED">
+        <ParamRow label="SEED" value={p.seed}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input type="number" value={p.seed} onChange={e => update({ seed: Number(e.target.value) })} style={{ flex: 1 }} />
+            <button className="btn" style={{ fontSize: 10, padding: '4px 8px' }} onClick={() => update({ seed: Math.floor(Math.random() * 99999) })}>RNG</button>
+          </div>
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── Voronoi panel ────────────────────────────────────────────────────────────
+
+function VoronoiPanel() {
+  const { params, updateParams } = useApp();
+  const p = params.voronoi as VoronoiParams;
+  const update = (partial: Partial<VoronoiParams>) => updateParams('voronoi', partial);
+
+  const presets = [
+    { label: 'MOSAÏQUE', apply: () => update({ cellCount: 40, mode: 'fill', colorMode: 'fromImage', edgeColor: '#ffffff', edgeWidth: 1 }) },
+    { label: 'SCHÉMA', apply: () => update({ cellCount: 30, mode: 'edges', colorMode: 'fromImage', edgeColor: '#00ffaa', bgColor: '#000000', edgeWidth: 1 }) },
+    { label: 'LOW POLY', apply: () => update({ cellCount: 60, mode: 'fill', colorMode: 'fromImage', edgeColor: '#000000', edgeWidth: 0, jitter: 0.6 }) },
+    { label: 'NÉON', apply: () => update({ cellCount: 25, mode: 'edges', colorMode: 'gradient', gradientA: '#ff0080', gradientB: '#0080ff', bgColor: '#000000', edgeWidth: 1.5 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Cellules" defaultOpen>
+        <ParamRow label="Nombre" value={p.cellCount}>
+          <Slider min={5} max={200} step={5} value={p.cellCount} onChange={v => update({ cellCount: v })} />
+        </ParamRow>
+        <ParamRow label="Jitter" value={(p.jitter * 100).toFixed(0) + '%'}>
+          <Slider min={0} max={1} step={0.05} value={p.jitter} onChange={v => update({ jitter: v })} />
+        </ParamRow>
+        <ParamRow label="Distance">
+          <select value={p.distanceMetric} onChange={e => update({ distanceMetric: e.target.value as VoronoiParams['distanceMetric'] })}>
+            <option value="euclidean">EUCLIDIENNE</option>
+            <option value="manhattan">MANHATTAN</option>
+            <option value="chebyshev">CHEBYSHEV</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="SEED" value={p.seed}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input type="number" value={p.seed} onChange={e => update({ seed: Number(e.target.value) })} style={{ flex: 1 }} />
+            <button className="btn" style={{ fontSize: 10, padding: '4px 8px' }} onClick={() => update({ seed: Math.floor(Math.random() * 99999) })}>RNG</button>
+          </div>
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Mode" defaultOpen>
+        <ParamRow label="Rendu">
+          <select value={p.mode} onChange={e => update({ mode: e.target.value as VoronoiParams['mode'] })}>
+            <option value="fill">CELLULES REMPLIES</option>
+            <option value="edges">CONTOURS</option>
+            <option value="points">POINTS CENTRAUX</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Couleur cellules">
+          <select value={p.colorMode} onChange={e => update({ colorMode: e.target.value as VoronoiParams['colorMode'] })}>
+            <option value="fromImage">IMAGE SOURCE</option>
+            <option value="gradient">DÉGRADÉ</option>
+            <option value="random">ALÉATOIRE</option>
+          </select>
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Contours">
+        <ParamRow label="Couleur">
+          <input type="color" value={p.edgeColor} onChange={e => update({ edgeColor: e.target.value })} />
+        </ParamRow>
+        <ParamRow label="Épaisseur" value={p.edgeWidth.toFixed(1)}>
+          <Slider min={0} max={4} step={0.5} value={p.edgeWidth} onChange={v => update({ edgeWidth: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Mélange">
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── VHS panel ────────────────────────────────────────────────────────────────
+
+function VhsPanel() {
+  const { params, updateParams } = useApp();
+  const p = params.vhs as VhsParams;
+  const update = (partial: Partial<VhsParams>) => updateParams('vhs', partial);
+
+  const presets = [
+    { label: 'SP', apply: () => update({ tracking: 10, colorBleed: 5, ghosting: 3, scanlineIntensity: 0.2, noiseAmount: 8, hSync: 8, tapeSpeed: 'SP', static: 0 }) },
+    { label: 'LP', apply: () => update({ tracking: 25, colorBleed: 12, ghosting: 8, scanlineIntensity: 0.4, noiseAmount: 20, hSync: 20, tapeSpeed: 'LP', static: 5 }) },
+    { label: 'EP', apply: () => update({ tracking: 40, colorBleed: 20, ghosting: 15, scanlineIntensity: 0.5, noiseAmount: 35, hSync: 35, tapeSpeed: 'EP', static: 15 }) },
+    { label: 'DÉGRADÉ', apply: () => update({ tracking: 60, colorBleed: 25, ghosting: 20, scanlineIntensity: 0.6, noiseAmount: 50, hSync: 50, static: 25 }) },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <QuickPresets presets={presets} />
+      <Accordion label="Bande" defaultOpen>
+        <ParamRow label="Vitesse bande">
+          <select value={p.tapeSpeed} onChange={e => update({ tapeSpeed: e.target.value as VhsParams['tapeSpeed'] })}>
+            <option value="SP">SP (Standard Play — meilleure qualité)</option>
+            <option value="LP">LP (Long Play)</option>
+            <option value="EP">EP (Extended Play — pire qualité)</option>
+          </select>
+        </ParamRow>
+        <ParamRow label="Tracking" value={p.tracking}>
+          <Slider min={0} max={100} value={p.tracking} onChange={v => update({ tracking: v })} />
+        </ParamRow>
+        <ParamRow label="Sync H" value={p.hSync} tip="Instabilité horizontale — la ligne de synchro se déplace.">
+          <Slider min={0} max={100} value={p.hSync} onChange={v => update({ hSync: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Vidéo" defaultOpen>
+        <ParamRow label="Saignée couleur" value={p.colorBleed} tip="Diffusion latérale des chrominances, défaut optique VHS.">
+          <Slider min={0} max={40} value={p.colorBleed} onChange={v => update({ colorBleed: v })} />
+        </ParamRow>
+        <ParamRow label="Fantôme" value={p.ghosting} tip="Double image fantôme, due aux réflexions de signal.">
+          <Slider min={0} max={30} value={p.ghosting} onChange={v => update({ ghosting: v })} />
+        </ParamRow>
+        <ParamRow label="">
+          <Toggle value={p.rgbOffset} onChange={v => update({ rgbOffset: v })} label="Décalage RGB" />
+        </ParamRow>
+        {p.rgbOffset && (
+          <ParamRow label="Décalage" value={p.rgbOffsetAmount + 'px'}>
+            <Slider min={1} max={15} value={p.rgbOffsetAmount} onChange={v => update({ rgbOffsetAmount: v })} />
+          </ParamRow>
+        )}
+      </Accordion>
+      <Accordion label="Artefacts" defaultOpen>
+        <ParamRow label="Scanlines" value={Math.round(p.scanlineIntensity * 100) + '%'}>
+          <Slider min={0} max={1} step={0.05} value={p.scanlineIntensity} onChange={v => update({ scanlineIntensity: v })} />
+        </ParamRow>
+        <ParamRow label="Bruit" value={p.noiseAmount}>
+          <Slider min={0} max={80} value={p.noiseAmount} onChange={v => update({ noiseAmount: v })} />
+        </ParamRow>
+        <ParamRow label="Statique" value={p.static}>
+          <Slider min={0} max={60} value={p.static} onChange={v => update({ static: v })} />
+        </ParamRow>
+      </Accordion>
+      <Accordion label="Image">
+        <ParamRow label="Luminance" value={p.luma}>
+          <Slider min={-50} max={50} value={p.luma} onChange={v => update({ luma: v })} />
+        </ParamRow>
+        <ParamRow label="Saturation" value={p.saturation + '%'}>
+          <Slider min={0} max={150} value={p.saturation} onChange={v => update({ saturation: v })} />
+        </ParamRow>
+        <ParamRow label="Fondu original" value={p.blendOriginal + '%'}>
+          <Slider min={0} max={100} value={p.blendOriginal} onChange={v => update({ blendOriginal: v })} />
+        </ParamRow>
+      </Accordion>
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 const PANELS: Record<string, React.ComponentType> = {
@@ -1057,18 +1990,69 @@ const PANELS: Record<string, React.ComponentType> = {
   infrared: InfraredPanel,
   pointcloud: PointCloudPanel,
   topo: TopoPanel,
+  halftone: HalftonePanel,
+  'matrix-rain': MatrixRainPanel,
+  dots: DotsPanel,
+  contour: ContourPanel,
+  'pixel-sort': PixelSortPanel,
+  blockify: BlockifyPanel,
+  'threshold-effect': ThresholdEffectPanel,
+  'edge-detection': EdgeDetectionPanel,
+  crosshatch: CrosshatchPanel,
+  'wave-lines': WaveLinesPanel,
+  'noise-field': NoiseFieldPanel,
+  voronoi: VoronoiPanel,
+  vhs: VhsPanel,
 };
 
 const PANEL_LABELS: Record<string, string> = {
-  dither: 'Dithering',
-  ascii: 'ASCII',
-  brutalist: 'Brutalisme',
-  cybersigilism: 'Cybersigilism',
-  thermal: 'Thermique',
-  nightvision: 'Vision nocturne',
-  infrared: 'Infrarouge',
-  pointcloud: 'Point cloud',
-  topo: 'Topo contours',
+  dither:             'Dithering',
+  ascii:              'ASCII',
+  brutalist:          'Brutalisme',
+  cybersigilism:      'Cybersigilism',
+  thermal:            'Thermique',
+  nightvision:        'Vision nocturne',
+  infrared:           'Infrarouge',
+  pointcloud:         'Point cloud',
+  topo:               'Topo contours',
+  halftone:           'Similigravure',
+  'matrix-rain':      'Matrix Rain',
+  dots:               'Points',
+  contour:            'Contours',
+  'pixel-sort':       'Tri de pixels',
+  blockify:           'Mosaïque',
+  'threshold-effect': 'Seuillage',
+  'edge-detection':   'Détection bords',
+  crosshatch:         'Hachures',
+  'wave-lines':       'Lignes ondulées',
+  'noise-field':      'Champ de bruit',
+  voronoi:            'Voronoï',
+  vhs:                'VHS',
+};
+
+const PANEL_ICONS: Record<string, string> = {
+  dither:             '▒',
+  ascii:              'A',
+  brutalist:          '▪',
+  cybersigilism:      '✦',
+  thermal:            '◈',
+  nightvision:        '◉',
+  infrared:           '⊛',
+  pointcloud:         '⋮',
+  topo:               '≋',
+  halftone:           '◎',
+  'matrix-rain':      '雨',
+  dots:               '∷',
+  contour:            '⌇',
+  'pixel-sort':       '⇅',
+  blockify:           '⊞',
+  'threshold-effect': '◐',
+  'edge-detection':   '⌸',
+  crosshatch:         '⊘',
+  'wave-lines':       '∿',
+  'noise-field':      '⣿',
+  voronoi:            '⬡',
+  vhs:                '⏿',
 };
 
 export function EffectPanel() {
@@ -1086,20 +2070,16 @@ export function EffectPanel() {
         </div>
         {originalImage && (
           <div className="panel-effect-grid">
-            {effects.map(e => {
-              const ICONS: Record<string, string> = { dither: '▒', ascii: 'A', brutalist: '▪', cybersigilism: '✦', thermal: '◈', nightvision: '◉', infrared: '⊛', pointcloud: '⋮', topo: '≋' };
-              const NAMES: Record<string, string> = { dither: 'Dithering', ascii: 'ASCII', brutalist: 'Brutalisme', cybersigilism: 'Cybersigilism', thermal: 'Thermique', nightvision: 'Vision nocturne', infrared: 'Infrarouge', pointcloud: 'Point cloud', topo: 'Topo contours' };
-              return (
-                <button
-                  key={e.type}
-                  className={`panel-effect-card${e.enabled ? ' panel-effect-card--on' : ''}`}
-                  onClick={() => { if (!e.enabled) toggleEffect(e.type); selectEffect(e.type); }}
-                >
-                  <span className="panel-effect-card-icon">{ICONS[e.type]}</span>
-                  <span className="panel-effect-card-name">{NAMES[e.type]}</span>
-                </button>
-              );
-            })}
+            {effects.map(e => (
+              <button
+                key={e.type}
+                className={`panel-effect-card${e.enabled ? ' panel-effect-card--on' : ''}`}
+                onClick={() => { if (!e.enabled) toggleEffect(e.type); selectEffect(e.type); }}
+              >
+                <span className="panel-effect-card-icon">{PANEL_ICONS[e.type]}</span>
+                <span className="panel-effect-card-name">{PANEL_LABELS[e.type]}</span>
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -1107,7 +2087,6 @@ export function EffectPanel() {
   }
 
   const Panel = PANELS[active];
-  const PANEL_ICONS: Record<string, string> = { dither: '▒', ascii: 'A', brutalist: '▪', cybersigilism: '✦', thermal: '◈', nightvision: '◉', infrared: '⊛', pointcloud: '⋮', topo: '≋' };
   const isEnabled = effects.find(e => e.type === active)?.enabled ?? false;
   const isLive = liveEffects[active];
   return (

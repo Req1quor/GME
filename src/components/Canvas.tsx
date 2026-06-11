@@ -42,8 +42,7 @@ export function Canvas() {
 
     // In GPU mode without B/A, the blit is handled directly by processGPU.
     // Only handle the CPU / B/A fallback path here.
-    // Audio and webcam modes always use the CPU (setDirectResult) path.
-    const useGpu = appMode !== 'audio' && appMode !== 'webcam' && gpuReady && glRenderer.ready && glRenderer.width > 0 && gpuFrameCount > 0;
+    const useGpu = appMode !== 'webcam' && gpuReady && glRenderer.ready && glRenderer.width > 0 && gpuFrameCount > 0;
     if (useGpu && !baMode) return;
 
     if (!baMode) {

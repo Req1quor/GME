@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import type { ActiveEffect, EffectParams, EffectType, Adjustments, Preset, AppMode, VisualizerParams } from './types';
+import type { ActiveEffect, EffectParams, EffectType, Adjustments, Preset, AppMode, VisualizerParams, AudioAnalysisData } from './types';
 import { glRenderer, ditherIsGpuCapable } from './gl/renderer';
 import { applyDither } from './effects/dither';
 import { applyAscii } from './effects/ascii';
@@ -10,6 +10,19 @@ import { applyNightVision } from './effects/nightvision';
 import { applyInfrared } from './effects/infrared';
 import { applyPointCloud } from './effects/pointcloud';
 import { applyTopo } from './effects/topo';
+import { applyHalftone } from './effects/halftone';
+import { applyMatrixRain } from './effects/matrix-rain';
+import { applyDots } from './effects/dots';
+import { applyContour } from './effects/contour';
+import { applyPixelSort } from './effects/pixel-sort';
+import { applyBlockify } from './effects/blockify';
+import { applyThresholdEffect } from './effects/threshold-effect';
+import { applyEdgeDetection } from './effects/edge-detection';
+import { applyCrosshatch } from './effects/crosshatch';
+import { applyWaveLines } from './effects/wave-lines';
+import { applyNoiseField } from './effects/noise-field';
+import { applyVoronoi } from './effects/voronoi';
+import { applyVhs } from './effects/vhs';
 
 // ─── Destroy: lerp params toward extremes ─────────────────────────────────────
 
@@ -41,8 +54,6 @@ function computeDestroyedParams(p: EffectParams, t: number): EffectParams {
       chromaticAmount:     lerp(p.brutalist.chromaticAmount, 20, t),
       scanlines:           lerpBool(p.brutalist.scanlines, 0.15, t),
       scanlineIntensity:   lerp(p.brutalist.scanlineIntensity, 1, t),
-      pixelSort:           lerpBool(p.brutalist.pixelSort, 0.35, t),
-      pixelSortThreshold:  lerp(p.brutalist.pixelSortThreshold, 200, t),
       posterize:           lerpBool(p.brutalist.posterize, 0.1, t),
       posterizeLevels:     Math.max(2, Math.round(lerp(p.brutalist.posterizeLevels, 2, t))),
     },
@@ -60,7 +71,70 @@ function computeDestroyedParams(p: EffectParams, t: number): EffectParams {
 // ─── Live mode: drift params by phase (per-effect) ───────────────────────────
 
 type LiveEffects = Record<EffectType, boolean>;
+export type AudioReactiveEffects = Record<EffectType, boolean>;
 type LivePhases  = Record<EffectType, number>;
+
+// ─── Audio-reactive parameter modulation ─────────────────────────────────────
+// Called in processGPU whenever audio amplitude > 0 (i.e. in audio mode).
+// Scales / modulates key effect params to make them pulse with the music.
+function applyAudioPhase(p: EffectParams, audio: AudioAnalysisData): EffectParams {
+  const { bass, mid, treble, amplitude } = audio;
+  if (amplitude < 0.01) return p;
+  return {
+    ...p,
+    dither: { ...p.dither,
+      intensity: Math.max(0.08, p.dither.intensity * (0.55 + bass * 1.35)),
+    },
+    thermal: { ...p.thermal,
+      brightness: Math.max(-100, Math.min(100, p.thermal.brightness + amplitude * 22 - 8)),
+      contrast:   Math.max(0,    Math.min(200, p.thermal.contrast   + bass   * 18)),
+    },
+    nightvision: { ...p.nightvision,
+      gain:  p.nightvision.gain  * (0.72 + amplitude),
+      bloom: Math.max(0, p.nightvision.bloom * (0.35 + bass * 1.5)),
+    },
+    topo: { ...p.topo,
+      bands: Math.max(3, Math.min(36, Math.round(p.topo.bands * (0.68 + treble * 0.68)))),
+      glow:  Math.max(0, p.topo.glow + bass * 6),
+    },
+    brutalist: { ...p.brutalist,
+      glitchIntensity: p.brutalist.glitchIntensity * (0.15 + bass * 2.5),
+      glitchSeed:      (bass * 9999) | 0,
+    },
+    vhs: { ...p.vhs,
+      tracking:    Math.min(100, p.vhs.tracking    + bass   * 40),
+      hSync:       Math.min(100, p.vhs.hSync       + bass   * 30),
+      colorBleed:  Math.min(50,  p.vhs.colorBleed  + mid    * 22),
+      noiseAmount: Math.min(100, p.vhs.noiseAmount + treble * 32),
+    },
+    halftone: { ...p.halftone,
+      gridSize: Math.max(2, Math.round(p.halftone.gridSize * (0.5 + amplitude * 1.1))),
+    },
+    contour: { ...p.contour,
+      threshold: Math.max(5, Math.min(200, p.contour.threshold - bass * 55 + 14)),
+    },
+    'edge-detection': { ...p['edge-detection'],
+      threshold: Math.max(5, Math.min(200, p['edge-detection'].threshold - amplitude * 48 + 16)),
+    },
+    infrared: { ...p.infrared,
+      contrast:   Math.min(200, p.infrared.contrast   + amplitude * 22),
+      saturation: Math.round(Math.max(20, p.infrared.saturation * (0.72 + bass * 0.58))),
+    },
+    pointcloud: { ...p.pointcloud,
+      maxDotSize: p.pointcloud.maxDotSize * (0.35 + amplitude * 2.0),
+      jitter:     Math.min(1.5, p.pointcloud.jitter + bass * 0.55),
+    },
+    'pixel-sort': { ...p['pixel-sort'],
+      threshold: Math.max(20, Math.min(220, p['pixel-sort'].threshold - bass * 65 + 22)),
+    },
+    'noise-field': { ...p['noise-field'],
+      scale: Math.max(0.5, p['noise-field'].scale * (0.55 + mid * 1.1)),
+    },
+    'wave-lines': { ...p['wave-lines'],
+      amplitude: Math.max(0, p['wave-lines'].amplitude * (0.4 + amplitude * 1.8)),
+    },
+  };
+}
 
 function applyLivePhase(p: EffectParams, phases: LivePhases, live: LiveEffects): EffectParams {
   return {
@@ -110,11 +184,79 @@ function applyLivePhase(p: EffectParams, phases: LivePhases, live: LiveEffects):
       noiseAmount: Math.max(0, Math.min(1, p.topo.noiseAmount + Math.sin(phases.topo * 0.8) * 0.2)),
       bands:       Math.max(2, Math.min(40, p.topo.bands + Math.round(Math.sin(phases.topo * 0.4) * 3))),
     } : p.topo,
+    halftone: live.halftone ? {
+      ...p.halftone,
+      angle:   (p.halftone.angle + Math.sin(phases.halftone * 0.3) * 5 + 360) % 360,
+      gridSize: Math.max(2, p.halftone.gridSize + Math.sin(phases.halftone * 0.7) * 2),
+    } : p.halftone,
+    'matrix-rain': live['matrix-rain'] ? {
+      ...p['matrix-rain'],
+      speed: Math.max(0.5, Math.min(5, p['matrix-rain'].speed + Math.sin(phases['matrix-rain'] * 0.6) * 0.5)),
+    } : p['matrix-rain'],
+    dots: live.dots ? {
+      ...p.dots,
+      dotSize: Math.max(1, Math.min(30, p.dots.dotSize + Math.sin(phases.dots * 0.4) * 2)),
+    } : p.dots,
+    contour: live.contour ? {
+      ...p.contour,
+      threshold: Math.max(5, Math.min(200, p.contour.threshold + Math.sin(phases.contour * 0.7) * 15)),
+    } : p.contour,
+    'pixel-sort': live['pixel-sort'] ? {
+      ...p['pixel-sort'],
+      threshold: Math.max(0, Math.min(255, p['pixel-sort'].threshold + Math.sin(phases['pixel-sort'] * 0.5) * 20)),
+    } : p['pixel-sort'],
+    blockify: live.blockify ? {
+      ...p.blockify,
+      blockSize: Math.max(4, Math.min(64, p.blockify.blockSize + Math.round(Math.sin(phases.blockify * 0.4) * 4))),
+    } : p.blockify,
+    'threshold-effect': live['threshold-effect'] ? {
+      ...p['threshold-effect'],
+      threshold: Math.max(0, Math.min(255, p['threshold-effect'].threshold + Math.sin(phases['threshold-effect'] * 0.6) * 20)),
+    } : p['threshold-effect'],
+    'edge-detection': live['edge-detection'] ? {
+      ...p['edge-detection'],
+      threshold: Math.max(0, Math.min(255, p['edge-detection'].threshold + Math.sin(phases['edge-detection'] * 0.7) * 15)),
+    } : p['edge-detection'],
+    crosshatch: live.crosshatch ? {
+      ...p.crosshatch,
+      spacing: Math.max(2, Math.min(30, p.crosshatch.spacing + Math.sin(phases.crosshatch * 0.5) * 3)),
+    } : p.crosshatch,
+    'wave-lines': live['wave-lines'] ? {
+      ...p['wave-lines'],
+      phase:     p['wave-lines'].phase + phases['wave-lines'] * 8,
+      amplitude: Math.max(0, Math.min(150, p['wave-lines'].amplitude + Math.sin(phases['wave-lines'] * 0.4) * 10)),
+    } : p['wave-lines'],
+    'noise-field': live['noise-field'] ? {
+      ...p['noise-field'],
+      offsetX: p['noise-field'].offsetX + Math.sin(phases['noise-field'] * 0.3) * 5,
+      offsetY: p['noise-field'].offsetY + Math.cos(phases['noise-field'] * 0.25) * 5,
+    } : p['noise-field'],
+    voronoi: live.voronoi ? {
+      ...p.voronoi,
+      seed: Math.round(Math.abs(Math.sin(phases.voronoi * 0.13)) * 99999),
+    } : p.voronoi,
+    vhs: live.vhs ? {
+      ...p.vhs,
+      hSync:   Math.max(0, Math.min(100, p.vhs.hSync + Math.sin(phases.vhs * 1.5) * 10)),
+      tracking: Math.max(0, Math.min(100, p.vhs.tracking + Math.sin(phases.vhs * 0.8) * 8)),
+    } : p.vhs,
   };
 }
 
-const LIVE_ZERO_PHASES: LivePhases = { dither: 0, ascii: 0, brutalist: 0, cybersigilism: 0, thermal: 0, nightvision: 0, infrared: 0, pointcloud: 0, topo: 0 };
-const LIVE_ZERO_EFFECTS: LiveEffects = { dither: false, ascii: false, brutalist: false, cybersigilism: false, thermal: false, nightvision: false, infrared: false, pointcloud: false, topo: false };
+const LIVE_ZERO_PHASES: LivePhases = {
+  dither: 0, ascii: 0, brutalist: 0, cybersigilism: 0, thermal: 0,
+  nightvision: 0, infrared: 0, pointcloud: 0, topo: 0,
+  halftone: 0, 'matrix-rain': 0, dots: 0, contour: 0,
+  'pixel-sort': 0, blockify: 0, 'threshold-effect': 0, 'edge-detection': 0,
+  crosshatch: 0, 'wave-lines': 0, 'noise-field': 0, voronoi: 0, vhs: 0,
+};
+const LIVE_ZERO_EFFECTS: LiveEffects = {
+  dither: false, ascii: false, brutalist: false, cybersigilism: false, thermal: false,
+  nightvision: false, infrared: false, pointcloud: false, topo: false,
+  halftone: false, 'matrix-rain': false, dots: false, contour: false,
+  'pixel-sort': false, blockify: false, 'threshold-effect': false, 'edge-detection': false,
+  crosshatch: false, 'wave-lines': false, 'noise-field': false, voronoi: false, vhs: false,
+};
 
 // ─── Randomize ────────────────────────────────────────────────────────────────
 
@@ -123,11 +265,14 @@ function rndInt(min: number, max: number) { return Math.round(rnd(min, max)); }
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
 function randomEffects(): ActiveEffect[] {
-  const all: EffectType[] = ['dither', 'ascii', 'brutalist', 'cybersigilism', 'thermal', 'nightvision', 'infrared', 'pointcloud', 'topo'];
+  const all: EffectType[] = [
+    'dither', 'ascii', 'brutalist', 'cybersigilism', 'thermal', 'nightvision', 'infrared', 'pointcloud', 'topo',
+    'halftone', 'matrix-rain', 'dots', 'contour', 'pixel-sort', 'blockify',
+    'threshold-effect', 'edge-detection', 'crosshatch', 'wave-lines', 'noise-field', 'voronoi', 'vhs',
+  ];
   const shuffled = [...all].sort(() => Math.random() - 0.5);
   const count = rndInt(1, 3);
   const chosen = new Set(shuffled.slice(0, count));
-  // Return the full list in a randomized order (not canonical order) so stacking order is random too
   return shuffled.map(type => ({ id: type, type, enabled: chosen.has(type) }));
 }
 
@@ -162,23 +307,15 @@ function randomParams(): EffectParams {
     brutalist: {
       posterize: Math.random() > 0.3,
       posterizeLevels: rndInt(2, 8),
-      threshold: Math.random() > 0.6,
-      thresholdValue: rndInt(80, 180),
       glitch: Math.random() > 0.4,
       glitchIntensity: rnd(1, 12),
       grid: Math.random() > 0.6,
       gridSpacing: rndInt(10, 40),
       gridOpacity: rnd(0.1, 0.6),
-      edgeDetect: Math.random() > 0.5,
-      edgeThreshold: rndInt(50, 180),
-      edgeColor: Math.random() > 0.5 ? '#ffffff' : randHex(),
       chromaticAberration: Math.random() > 0.5,
       chromaticAmount: rnd(2, 15),
       scanlines: Math.random() > 0.5,
       scanlineIntensity: rnd(0.2, 0.9),
-      pixelSort: Math.random() > 0.5,
-      pixelSortAxis: pick(['horizontal', 'vertical']),
-      pixelSortThreshold: rndInt(60, 200),
       glitchSeed: rndInt(0, 9999),
       noise: Math.random() > 0.5,
       noiseAmount: rnd(10, 60),
@@ -274,6 +411,190 @@ function randomParams(): EffectParams {
       majorLineMultiplier: rnd(1.5, 3),
       noiseAmount: rnd(0, 0.3),
     },
+    halftone: {
+      angle: rnd(0, 45),
+      gridSize: rndInt(3, 20),
+      mode: pick(['mono', 'cmyk', 'custom']),
+      dotShape: pick(['circle', 'ellipse', 'diamond', 'line']),
+      invert: Math.random() > 0.7,
+      bgColor: Math.random() > 0.5 ? '#ffffff' : randHex(),
+      fgColor: Math.random() > 0.5 ? '#000000' : randHex(),
+      gamma: rnd(0.8, 2.5),
+      blendOriginal: rndInt(0, 30),
+      softEdge: Math.random() > 0.5,
+      contrast: rnd(0.8, 1.4),
+      brightness: rnd(-0.1, 0.1),
+    },
+    'matrix-rain': {
+      chars: pick(['default', '01 ', 'アイウエオカキクケコ', '@#$%!*+:. ']),
+      fontSize: rndInt(8, 20),
+      speed: rnd(0.5, 3),
+      density: rndInt(40, 100),
+      color: pick(['#00ff41', '#00cc33', '#39ff14', '#0ff', '#fff']),
+      bgColor: '#000000',
+      bgOpacity: rnd(0.85, 0.98),
+      trailLength: rnd(0.7, 0.97),
+      glowEffect: Math.random() > 0.4,
+      colorVariance: rnd(0, 0.3),
+      seed: rndInt(0, 9999),
+    },
+    dots: {
+      gridType: pick(['square', 'hex', 'triangular']),
+      dotSize: rndInt(2, 12),
+      spacing: rndInt(4, 20),
+      colorMode: pick(['original', 'mono', 'accent']),
+      accentColor: randHex(),
+      bgColor: '#000000',
+      dotShape: pick(['circle', 'square', 'ring']),
+      invert: Math.random() > 0.7,
+      sizeByLum: Math.random() > 0.4,
+      opacity: rndInt(60, 100),
+      angle: rnd(0, 30),
+      jitter: rnd(0, 0.4),
+      minSize: rnd(0.3, 1.5),
+    },
+    contour: {
+      mode: pick(['sobel', 'laplacian']),
+      threshold: rndInt(15, 80),
+      lineColor: Math.random() > 0.5 ? '#ffffff' : randHex(),
+      bgColor: '#000000',
+      bgTransparent: Math.random() > 0.7,
+      lineWidth: rnd(0.5, 2),
+      smooth: Math.random() > 0.5,
+      smoothRadius: rnd(0, 2),
+      colorize: Math.random() > 0.6,
+      colorA: randHex(),
+      colorB: randHex(),
+      blendOriginal: rndInt(0, 20),
+      invertEdges: Math.random() > 0.8,
+    },
+    'pixel-sort': {
+      axis: pick(['horizontal', 'vertical', 'both']),
+      threshold: rndInt(60, 200),
+      mode: pick(['luminance', 'hue', 'saturation']),
+      direction: pick(['ascending', 'descending']),
+      segmented: Math.random() > 0.4,
+      blendOriginal: rndInt(0, 20),
+      chunkSize: rndInt(200, 9999),
+      skipChance: rnd(0, 0.3),
+    },
+    blockify: {
+      blockSize: rndInt(8, 48),
+      samplingMode: pick(['center', 'average']),
+      colorMode: pick(['original', 'quantize']),
+      levels: rndInt(4, 20),
+      edgeHighlight: Math.random() > 0.5,
+      edgeColor: '#000000',
+      edgeWidth: rnd(0.5, 2),
+      roundCorners: false,
+      cornerRadius: rnd(0, 0.3),
+      blendOriginal: rndInt(0, 20),
+    },
+    'threshold-effect': {
+      mode: pick(['binary', 'duotone', 'multi']),
+      threshold: rndInt(80, 180),
+      adaptiveRadius: rndInt(5, 20),
+      adaptiveOffset: rndInt(-30, 30),
+      levels: rndInt(2, 6),
+      colorA: Math.random() > 0.5 ? '#000000' : randHex(),
+      colorB: Math.random() > 0.5 ? '#ffffff' : randHex(),
+      colorC: randHex(),
+      invert: Math.random() > 0.7,
+      blendOriginal: rndInt(0, 20),
+    },
+    'edge-detection': {
+      algorithm: pick(['sobel', 'prewitt', 'laplacian', 'roberts']),
+      threshold: rndInt(30, 120),
+      mode: pick(['on-black', 'on-white', 'colored']),
+      edgeColor: Math.random() > 0.5 ? '#ffffff' : randHex(),
+      bgColor: '#000000',
+      lineWidth: rnd(0.5, 3),
+      invert: Math.random() > 0.8,
+      blendOriginal: rndInt(0, 20),
+      colorByAngle: Math.random() > 0.6,
+      luminanceOnly: false,
+    },
+    crosshatch: {
+      layers: rndInt(1, 4),
+      angle1: rnd(30, 60),
+      angle2: rnd(100, 140),
+      angle3: rnd(0, 30),
+      angle4: rnd(150, 180),
+      spacing: rndInt(4, 20),
+      lineWidth: rnd(0.5, 2),
+      color: Math.random() > 0.5 ? '#000000' : randHex(),
+      bgColor: Math.random() > 0.5 ? '#ffffff' : randHex(),
+      bgTransparent: Math.random() > 0.7,
+      lumDriven: Math.random() > 0.4,
+      minSpacing: rnd(2, 8),
+      maxSpacing: rnd(12, 30),
+      blendOriginal: rndInt(0, 20),
+      contrast: rnd(0, 30),
+    },
+    'wave-lines': {
+      waveType: pick(['sine', 'noise', 'combined']),
+      lineCount: rndInt(20, 120),
+      amplitude: rnd(5, 60),
+      frequency: rnd(1, 10),
+      lineWidth: rnd(0.5, 2.5),
+      color: Math.random() > 0.5 ? '#ffffff' : randHex(),
+      bgColor: '#000000',
+      bgTransparent: Math.random() > 0.6,
+      colorMode: pick(['solid', 'gradient', 'fromImage']),
+      gradientA: randHex(),
+      gradientB: randHex(),
+      lumDriven: Math.random() > 0.4,
+      phase: rnd(0, 360),
+      noiseScale: rnd(0.5, 5),
+      blendOriginal: rndInt(0, 20),
+      invert: Math.random() > 0.8,
+    },
+    'noise-field': {
+      noiseType: pick(['value', 'fractal', 'domain-warp']),
+      scale: rnd(1, 12),
+      octaves: rndInt(1, 6),
+      persistence: rnd(0.3, 0.8),
+      lacunarity: rnd(1.8, 3.5),
+      brightness: rnd(-20, 20),
+      contrast: rnd(0, 40),
+      colorMode: pick(['grayscale', 'heatmap', 'plasma', 'custom']),
+      colorA: randHex(),
+      colorB: randHex(),
+      blendOriginal: rndInt(0, 30),
+      blendMode: pick(['normal', 'screen', 'multiply', 'overlay']),
+      seed: rndInt(0, 9999),
+      offsetX: 0,
+      offsetY: 0,
+    },
+    voronoi: {
+      cellCount: rndInt(10, 80),
+      mode: pick(['fill', 'edges', 'edges-fill']),
+      colorMode: pick(['fromImage', 'random', 'gradient', 'mono']),
+      edgeColor: Math.random() > 0.5 ? '#ffffff' : randHex(),
+      edgeWidth: rnd(0.5, 4),
+      bgColor: '#000000',
+      seed: rndInt(0, 9999),
+      jitter: rnd(0.3, 1),
+      gradientA: randHex(),
+      gradientB: randHex(),
+      blendOriginal: rndInt(0, 20),
+      distanceMetric: pick(['euclidean', 'manhattan', 'chebyshev']),
+    },
+    vhs: {
+      tracking: rndInt(5, 50),
+      colorBleed: rndInt(2, 25),
+      ghosting: rndInt(0, 20),
+      scanlineIntensity: rnd(0.1, 0.6),
+      noiseAmount: rndInt(5, 50),
+      hSync: rndInt(5, 40),
+      luma: rndInt(0, 30),
+      saturation: rndInt(70, 130),
+      tapeSpeed: pick(['SP', 'LP', 'EP']),
+      rgbOffset: Math.random() > 0.5,
+      rgbOffsetAmount: rndInt(1, 10),
+      blendOriginal: rndInt(0, 20),
+      static: rndInt(0, 30),
+    },
   };
 }
 
@@ -363,23 +684,15 @@ const defaultParams: EffectParams = {
   brutalist: {
     posterize: true,
     posterizeLevels: 4,
-    threshold: false,
-    thresholdValue: 128,
     glitch: false,
     glitchIntensity: 3,
     grid: false,
     gridSpacing: 20,
     gridOpacity: 0.3,
-    edgeDetect: false,
-    edgeThreshold: 100,
-    edgeColor: '#ffffff',
     chromaticAberration: false,
     chromaticAmount: 5,
     scanlines: false,
     scanlineIntensity: 0.5,
-    pixelSort: false,
-    pixelSortAxis: 'horizontal',
-    pixelSortThreshold: 128,
     glitchSeed: 42,
     noise: false,
     noiseAmount: 25,
@@ -475,6 +788,190 @@ const defaultParams: EffectParams = {
     majorLineMultiplier: 2,
     noiseAmount: 0,
   },
+  halftone: {
+    angle: 15,
+    gridSize: 8,
+    mode: 'mono',
+    dotShape: 'circle',
+    invert: false,
+    bgColor: '#ffffff',
+    fgColor: '#000000',
+    gamma: 1.0,
+    blendOriginal: 0,
+    softEdge: false,
+    contrast: 1.0,
+    brightness: 0,
+  },
+  'matrix-rain': {
+    chars: 'default',
+    fontSize: 14,
+    speed: 1.0,
+    density: 80,
+    color: '#00ff41',
+    bgColor: '#000000',
+    bgOpacity: 0.92,
+    trailLength: 0.88,
+    glowEffect: true,
+    colorVariance: 0.05,
+    seed: 42,
+  },
+  dots: {
+    gridType: 'square',
+    dotSize: 4,
+    spacing: 8,
+    colorMode: 'original',
+    accentColor: '#a855f7',
+    bgColor: '#000000',
+    dotShape: 'circle',
+    invert: false,
+    sizeByLum: true,
+    opacity: 100,
+    angle: 0,
+    jitter: 0,
+    minSize: 0.5,
+  },
+  contour: {
+    mode: 'sobel',
+    threshold: 30,
+    lineColor: '#ffffff',
+    bgColor: '#000000',
+    bgTransparent: false,
+    lineWidth: 1,
+    smooth: false,
+    smoothRadius: 1,
+    colorize: false,
+    colorA: '#ff0000',
+    colorB: '#0000ff',
+    blendOriginal: 0,
+    invertEdges: false,
+  },
+  'pixel-sort': {
+    axis: 'horizontal',
+    threshold: 128,
+    mode: 'luminance',
+    direction: 'ascending',
+    segmented: true,
+    blendOriginal: 0,
+    chunkSize: 9999,
+    skipChance: 0,
+  },
+  blockify: {
+    blockSize: 16,
+    samplingMode: 'average',
+    colorMode: 'original',
+    levels: 8,
+    edgeHighlight: false,
+    edgeColor: '#000000',
+    edgeWidth: 1,
+    roundCorners: false,
+    cornerRadius: 0,
+    blendOriginal: 0,
+  },
+  'threshold-effect': {
+    mode: 'binary',
+    threshold: 128,
+    adaptiveRadius: 10,
+    adaptiveOffset: 0,
+    levels: 4,
+    colorA: '#000000',
+    colorB: '#ffffff',
+    colorC: '#888888',
+    invert: false,
+    blendOriginal: 0,
+  },
+  'edge-detection': {
+    algorithm: 'sobel',
+    threshold: 50,
+    mode: 'on-black',
+    edgeColor: '#ffffff',
+    bgColor: '#000000',
+    lineWidth: 1,
+    invert: false,
+    blendOriginal: 0,
+    colorByAngle: false,
+    luminanceOnly: false,
+  },
+  crosshatch: {
+    layers: 2,
+    angle1: 45,
+    angle2: 135,
+    angle3: 0,
+    angle4: 90,
+    spacing: 8,
+    lineWidth: 0.8,
+    color: '#000000',
+    bgColor: '#ffffff',
+    bgTransparent: false,
+    lumDriven: true,
+    minSpacing: 3,
+    maxSpacing: 20,
+    blendOriginal: 0,
+    contrast: 0,
+  },
+  'wave-lines': {
+    waveType: 'sine',
+    lineCount: 50,
+    amplitude: 20,
+    frequency: 3,
+    lineWidth: 1,
+    color: '#ffffff',
+    bgColor: '#000000',
+    bgTransparent: false,
+    colorMode: 'solid',
+    gradientA: '#ff0080',
+    gradientB: '#0080ff',
+    lumDriven: false,
+    phase: 0,
+    noiseScale: 2,
+    blendOriginal: 0,
+    invert: false,
+  },
+  'noise-field': {
+    noiseType: 'fractal',
+    scale: 4,
+    octaves: 4,
+    persistence: 0.5,
+    lacunarity: 2,
+    brightness: 0,
+    contrast: 0,
+    colorMode: 'grayscale',
+    colorA: '#000000',
+    colorB: '#ffffff',
+    blendOriginal: 0,
+    blendMode: 'normal',
+    seed: 42,
+    offsetX: 0,
+    offsetY: 0,
+  },
+  voronoi: {
+    cellCount: 40,
+    mode: 'fill',
+    colorMode: 'fromImage',
+    edgeColor: '#ffffff',
+    edgeWidth: 1,
+    bgColor: '#000000',
+    seed: 42,
+    jitter: 0.8,
+    gradientA: '#ff0080',
+    gradientB: '#0080ff',
+    blendOriginal: 0,
+    distanceMetric: 'euclidean',
+  },
+  vhs: {
+    tracking: 20,
+    colorBleed: 8,
+    ghosting: 5,
+    scanlineIntensity: 0.3,
+    noiseAmount: 15,
+    hSync: 15,
+    luma: 0,
+    saturation: 95,
+    tapeSpeed: 'SP',
+    rgbOffset: false,
+    rgbOffsetAmount: 3,
+    blendOriginal: 0,
+    static: 0,
+  },
 };
 
 // ─── Context types ────────────────────────────────────────────────────────────
@@ -510,6 +1007,9 @@ interface AppContextType {
   setDestroyAmount: (v: number) => void;
   toggleLiveMode: () => void;
   toggleEffectLive: (type: EffectType) => void;
+  audioReactiveEffects: AudioReactiveEffects;
+  toggleEffectAudio: (type: EffectType) => void;
+  setAudioData: (data: AudioAnalysisData) => void;
   randomizeEffect: (type: EffectType) => void;
   processImage: () => void;
   undo: () => void;
@@ -555,7 +1055,11 @@ export function useApp() {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-const EFFECT_ORDER: EffectType[] = ['dither', 'ascii', 'brutalist', 'cybersigilism', 'thermal', 'nightvision', 'infrared', 'pointcloud', 'topo'];
+const EFFECT_ORDER: EffectType[] = [
+  'dither', 'ascii', 'brutalist', 'cybersigilism', 'thermal', 'nightvision', 'infrared', 'pointcloud', 'topo',
+  'halftone', 'matrix-rain', 'dots', 'contour', 'pixel-sort', 'blockify', 'threshold-effect', 'edge-detection',
+  'crosshatch', 'wave-lines', 'noise-field', 'voronoi', 'vhs',
+];
 
 // ─── Saved state loader ───────────────────────────────────────────────────────
 
@@ -580,6 +1084,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>('normal');
   const liveEffectsRef = useRef<LiveEffects>({ ...LIVE_ZERO_EFFECTS });
   useEffect(() => { liveEffectsRef.current = liveEffects; }, [liveEffects]);
+  const [audioReactiveEffects, setAudioReactiveEffects] = useState<AudioReactiveEffects>({ ...LIVE_ZERO_EFFECTS });
+  const audioDataRef = useRef<AudioAnalysisData>({ bass: 0, mid: 0, treble: 0, amplitude: 0 });
   const liveMode = Object.values(liveEffects).some(Boolean);
   const [gpuReady, setGpuReady] = useState(false);
   const [gpuFrameCount, setGpuFrameCount] = useState(0);
@@ -600,17 +1106,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const defaultVisualizerParams: VisualizerParams = {
-    mode:      'scope',
-    color:     '#a855f7',
-    color2:    '#06b6d4',
-    bgColor:   '#080810',
-    gain:      1.2,
-    smooth:    0.82,
-    lineWidth: 1.5,
+    mode:      'bars',
+    color:     '#6600ff',
+    color2:    '#ff4400',
+    bgColor:   '#030010',
+    gain:      1.3,
+    smooth:    0.84,
+    lineWidth: 1.8,
     glow:      true,
-    glowSize:  16,
+    glowSize:  22,
     barCount:  96,
-    decay:     0.12,
+    decay:     0.10,
   };
   const [visualizerParams, setVisualizerParams] = useState<VisualizerParams>(defaultVisualizerParams);
   const updateVisualizerParams = useCallback((partial: Partial<VisualizerParams>) => {
@@ -721,6 +1227,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLiveEffects(prev => ({ ...prev, [type]: !prev[type] }));
   }, []);
 
+  const toggleEffectAudio = useCallback((type: EffectType) => {
+    setAudioReactiveEffects(prev => ({ ...prev, [type]: !prev[type] }));
+  }, []);
+
+  const setAudioData = useCallback((data: AudioAnalysisData) => {
+    audioDataRef.current = data;
+  }, []);
+
   const toggleLiveMode = useCallback(() => {
     // Legacy no-op kept for interface compat
   }, []);
@@ -743,6 +1257,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!glRenderer.ready) return;
     let ep = destroyAmount > 0 ? computeDestroyedParams(params, destroyAmount / 100) : params;
     if (liveMode) ep = applyLivePhase(ep, livePhases, liveEffects);
+    // Audio-reactive modulation: active when audioDataRef has signal (audio mode only)
+    if (audioDataRef.current.amplitude > 0.01) ep = applyAudioPhase(ep, audioDataRef.current);
 
     // For non-GPU-capable dither algos, substitute with bayer4 so we never do
     // a CPU readback + error-diffusion loop at video resolution (would be 3-5fps).
@@ -760,25 +1276,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     glRenderer.uploadSource(src);
     glRenderer.process(effects, ep, adjustments, frameIdx);
-    // CPU-only effects: ASCII, cybersigilism — throttled to 15fps max
+    // CPU-only effects: ASCII, cybersigilism, matrix-rain, dots, crosshatch, wave-lines,
+    // noise-field, voronoi, pixel-sort — throttled to 15fps max
     const now = performance.now();
     const reversedEffects = [...effects].reverse();
-    const hasCpuEffect = reversedEffects.some(e => e.enabled && (
-      e.type === 'ascii' || e.type === 'cybersigilism'
-    ));
+    const CPU_ONLY_TYPES = new Set<string>([
+      'ascii', 'cybersigilism', 'matrix-rain', 'dots', 'crosshatch',
+      'wave-lines', 'noise-field', 'voronoi', 'pixel-sort',
+    ]);
+    const hasCpuEffect = reversedEffects.some(e => e.enabled && CPU_ONLY_TYPES.has(e.type));
     if (hasCpuEffect) {
       if ((now - lastCpuMsRef.current) >= CPU_THROTTLE_MS) {
         lastCpuMsRef.current = now;
         for (const effect of reversedEffects) {
-          if (!effect.enabled) continue;
-          if (effect.type === 'ascii' || effect.type === 'cybersigilism') {
-            const frame = glRenderer.readback();
-            const result = effect.type === 'ascii'
-              ? applyAscii(frame, ep.ascii)
-              : applyCybersigilismSync(frame, ep.cybersigilism);
-            lastCpuPatchRef.current = result;
-            glRenderer.patchWithImageData(result);
+          if (!effect.enabled || !CPU_ONLY_TYPES.has(effect.type)) continue;
+          const frame = glRenderer.readback();
+          let result: ImageData;
+          switch (effect.type) {
+            case 'ascii':           result = applyAscii(frame, ep.ascii); break;
+            case 'cybersigilism':   result = applyCybersigilismSync(frame, ep.cybersigilism); break;
+            case 'matrix-rain':     result = applyMatrixRain(frame, ep['matrix-rain']); break;
+            case 'dots':            result = applyDots(frame, ep.dots); break;
+            case 'crosshatch':      result = applyCrosshatch(frame, ep.crosshatch); break;
+            case 'wave-lines':      result = applyWaveLines(frame, ep['wave-lines']); break;
+            case 'noise-field':     result = applyNoiseField(frame, ep['noise-field']); break;
+            case 'voronoi':         result = applyVoronoi(frame, ep.voronoi); break;
+            case 'pixel-sort':      result = applyPixelSort(frame, ep['pixel-sort']); break;
+            default:                continue;
           }
+          lastCpuPatchRef.current = result;
+          glRenderer.patchWithImageData(result);
         }
       } else if (lastCpuPatchRef.current) {
         // Re-apply cached CPU result so the display doesn't flicker back to GPU-only
@@ -816,15 +1343,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     for (const effect of [...effects].reverse()) {
       if (!effect.enabled) continue;
       switch (effect.type) {
-        case 'dither':         data = applyDither(data, ep.dither); break;
-        case 'ascii':          data = applyAscii(data, ep.ascii); break;
-        case 'brutalist':      data = applyBrutalist(data, ep.brutalist); break;
-        case 'cybersigilism':  data = applyCybersigilismSync(data, ep.cybersigilism); break;
-        case 'thermal':        data = applyThermal(data, ep.thermal); break;
-        case 'nightvision':    data = applyNightVision(data, ep.nightvision); break;
-        case 'infrared':       data = applyInfrared(data, ep.infrared); break;
-        case 'pointcloud':     data = applyPointCloud(data, ep.pointcloud); break;
-        case 'topo':           data = applyTopo(data, ep.topo); break;
+        case 'dither':            data = applyDither(data, ep.dither); break;
+        case 'ascii':              data = applyAscii(data, ep.ascii); break;
+        case 'brutalist':          data = applyBrutalist(data, ep.brutalist); break;
+        case 'cybersigilism':      data = applyCybersigilismSync(data, ep.cybersigilism); break;
+        case 'thermal':            data = applyThermal(data, ep.thermal); break;
+        case 'nightvision':        data = applyNightVision(data, ep.nightvision); break;
+        case 'infrared':           data = applyInfrared(data, ep.infrared); break;
+        case 'pointcloud':         data = applyPointCloud(data, ep.pointcloud); break;
+        case 'topo':               data = applyTopo(data, ep.topo); break;
+        case 'halftone':           data = applyHalftone(data, ep.halftone); break;
+        case 'matrix-rain':        data = applyMatrixRain(data, ep['matrix-rain']); break;
+        case 'dots':               data = applyDots(data, ep.dots); break;
+        case 'contour':            data = applyContour(data, ep.contour); break;
+        case 'pixel-sort':         data = applyPixelSort(data, ep['pixel-sort']); break;
+        case 'blockify':           data = applyBlockify(data, ep.blockify); break;
+        case 'threshold-effect':   data = applyThresholdEffect(data, ep['threshold-effect']); break;
+        case 'edge-detection':     data = applyEdgeDetection(data, ep['edge-detection']); break;
+        case 'crosshatch':         data = applyCrosshatch(data, ep.crosshatch); break;
+        case 'wave-lines':         data = applyWaveLines(data, ep['wave-lines']); break;
+        case 'noise-field':        data = applyNoiseField(data, ep['noise-field']); break;
+        case 'voronoi':            data = applyVoronoi(data, ep.voronoi); break;
+        case 'vhs':                data = applyVhs(data, ep.vhs); break;
       }
     }
     return data;
@@ -1039,6 +1579,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setDestroyAmount,
       toggleLiveMode,
       toggleEffectLive,
+      audioReactiveEffects,
+      toggleEffectAudio,
+      setAudioData,
       randomizeEffect,
       processImage,
       undo,

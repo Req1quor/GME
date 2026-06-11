@@ -1,19 +1,14 @@
 ﻿import type { BrutalistParams } from '../types';
 
 function clamp(v: number) { return Math.max(0, Math.min(255, v)); }
-function clampW(v: number, w: number) { return Math.max(0, Math.min(w - 1, v)); }
-function clampH(v: number, h: number) { return Math.max(0, Math.min(h - 1, v)); }
 
 export function applyBrutalist(imageData: ImageData, params: BrutalistParams): ImageData {
   let data = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 
   if (params.posterize)           data = posterize(data, params.posterizeLevels);
-  if (params.threshold)           data = threshold(data, params.thresholdValue);
   if (params.noise)               data = applyNoise(data, params.noiseAmount ?? 25);
-  if (params.edgeDetect)          data = sobelEdge(data, params.edgeThreshold, params.edgeColor);
   if (params.chromaticAberration) data = chromaticAberration(data, params.chromaticAmount);
   if (params.scanlines)           data = applyScanlines(data, params.scanlineIntensity);
-  if (params.pixelSort)           data = pixelSort(data, params.pixelSortAxis, params.pixelSortThreshold);
   if (params.glitch)              data = glitch(data, params.glitchIntensity, params.glitchSeed ?? 42);
   return data;
 }
@@ -28,52 +23,6 @@ function posterize(imageData: ImageData, levels: number): ImageData {
     d[i+2] = Math.round(Math.round(d[i+2] / step) * step);
   }
   return out;
-}
-
-function threshold(imageData: ImageData, thresh: number): ImageData {
-  const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
-  const d = out.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const lum = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-    const v = lum >= thresh ? 255 : 0;
-    d[i] = d[i+1] = d[i+2] = v;
-  }
-  return out;
-}
-
-function sobelEdge(imageData: ImageData, threshold: number, edgeColorHex: string): ImageData {
-  const { width, height } = imageData;
-  const src = imageData.data;
-  const out = new Uint8ClampedArray(src.length);
-
-  // Parse edge color
-  const ec = parseInt(edgeColorHex.replace('#', ''), 16);
-  const er = (ec >> 16) & 255, eg = (ec >> 8) & 255, eb = ec & 255;
-
-  const lum = (i: number) => 0.299 * src[i] + 0.587 * src[i+1] + 0.114 * src[i+2];
-  const idx = (x: number, y: number) => (clampH(y, height) * width + clampW(x, width)) * 4;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      // Sobel kernels
-      const gx =
-        -lum(idx(x-1,y-1)) + lum(idx(x+1,y-1))
-        -2*lum(idx(x-1,y)) + 2*lum(idx(x+1,y))
-        -lum(idx(x-1,y+1)) + lum(idx(x+1,y+1));
-      const gy =
-        -lum(idx(x-1,y-1)) - 2*lum(idx(x,y-1)) - lum(idx(x+1,y-1))
-        +lum(idx(x-1,y+1)) + 2*lum(idx(x,y+1)) + lum(idx(x+1,y+1));
-      const mag = Math.sqrt(gx*gx + gy*gy);
-
-      if (mag > threshold) {
-        out[i]   = er; out[i+1] = eg; out[i+2] = eb; out[i+3] = 255;
-      } else {
-        out[i]   = src[i]; out[i+1] = src[i+1]; out[i+2] = src[i+2]; out[i+3] = src[i+3];
-      }
-    }
-  }
-  return new ImageData(out, width, height);
 }
 
 function chromaticAberration(imageData: ImageData, amount: number): ImageData {
@@ -118,59 +67,6 @@ function applyScanlines(imageData: ImageData, intensity: number): ImageData {
   return out;
 }
 
-function pixelSort(imageData: ImageData, axis: 'horizontal' | 'vertical', threshold: number): ImageData {
-  const { width, height } = imageData;
-  const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
-  const d = out.data;
-
-  const lum = (i: number) => 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-
-  if (axis === 'horizontal') {
-    for (let y = 0; y < height; y++) {
-      let x = 0;
-      while (x < width) {
-        // Find start of segment above threshold
-        if (lum((y * width + x) * 4) < threshold) { x++; continue; }
-        const start = x;
-        while (x < width && lum((y * width + x) * 4) >= threshold) x++;
-        const end = x;
-        // Sort segment by luminance
-        const seg: { lum: number; r: number; g: number; b: number; a: number }[] = [];
-        for (let k = start; k < end; k++) {
-          const i = (y * width + k) * 4;
-          seg.push({ lum: lum(i), r: d[i], g: d[i+1], b: d[i+2], a: d[i+3] });
-        }
-        seg.sort((a, b2) => a.lum - b2.lum);
-        for (let k = 0; k < seg.length; k++) {
-          const i = (y * width + (start + k)) * 4;
-          d[i] = seg[k].r; d[i+1] = seg[k].g; d[i+2] = seg[k].b; d[i+3] = seg[k].a;
-        }
-      }
-    }
-  } else {
-    for (let x = 0; x < width; x++) {
-      let y = 0;
-      while (y < height) {
-        if (lum((y * width + x) * 4) < threshold) { y++; continue; }
-        const start = y;
-        while (y < height && lum((y * width + x) * 4) >= threshold) y++;
-        const end = y;
-        const seg: { lum: number; r: number; g: number; b: number; a: number }[] = [];
-        for (let k = start; k < end; k++) {
-          const i = (k * width + x) * 4;
-          seg.push({ lum: lum(i), r: d[i], g: d[i+1], b: d[i+2], a: d[i+3] });
-        }
-        seg.sort((a, b2) => a.lum - b2.lum);
-        for (let k = 0; k < seg.length; k++) {
-          const i = ((start + k) * width + x) * 4;
-          d[i] = seg[k].r; d[i+1] = seg[k].g; d[i+2] = seg[k].b; d[i+3] = seg[k].a;
-        }
-      }
-    }
-  }
-  return out;
-}
-
 function glitch(imageData: ImageData, intensity: number, seed: number): ImageData {
   const out = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
   const { width, height } = out;
@@ -186,9 +82,9 @@ function glitch(imageData: ImageData, intensity: number, seed: number): ImageDat
     const sliceH = Math.floor(rand() * 4 + 1);
     const offset = Math.floor((rand() - 0.5) * 2 * width * (intensity / 10) * 0.5);
     for (let dy = 0; dy < sliceH; dy++) {
-      const row = clampH(y + dy, height);
+      const row = Math.max(0, Math.min(height - 1, y + dy));
       for (let x = 0; x < width; x++) {
-        const srcX = clampW(x - offset, width);
+        const srcX = Math.max(0, Math.min(width - 1, x - offset));
         const dst = (row * width + x) * 4;
         const src = (row * width + srcX) * 4;
         d[dst]   = imageData.data[src];

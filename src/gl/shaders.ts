@@ -315,7 +315,8 @@ void main() {
 }`;
 
 // ─── Brutalist ───────────────────────────────────────────────────────────────
-// Handles all GPU-compatible sub-effects. pixelSort and glitch require CPU.
+// Handles posterize, noise, chromatic aberration, scanlines, grid overlay.
+// pixelSort, threshold, edgeDetect are now standalone effects.
 export const FS_BRUTALIST = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 v_uv;
@@ -323,13 +324,8 @@ uniform sampler2D u_tex;
 uniform vec2  u_resolution;
 uniform int   u_posterize;
 uniform float u_posterizeLevels;
-uniform int   u_threshold;
-uniform float u_thresholdValue;
 uniform int   u_noise;
 uniform float u_noiseAmount;
-uniform int   u_edgeDetect;
-uniform float u_edgeThreshold;
-uniform vec3  u_edgeColor;
 uniform int   u_chromatic;
 uniform float u_chromaticAmount;
 uniform int   u_scanlines;
@@ -343,11 +339,6 @@ float hash21b(vec2 p) {
   p = fract(p * vec2(127.1, 311.7));
   p += dot(p, p + 34.23);
   return fract(p.x * p.y);
-}
-
-// Luminance of a texel at offset from current UV
-float lumAt(vec2 uv) {
-  return dot(texture(u_tex, uv).rgb, vec3(0.299, 0.587, 0.114));
 }
 
 void main() {
@@ -373,30 +364,10 @@ void main() {
     rgb = round(rgb / s) * s;
   }
 
-  // Threshold (binarize by luminance)
-  if (u_threshold == 1) {
-    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
-    float v = lum >= u_thresholdValue ? 1.0 : 0.0;
-    rgb = vec3(v);
-  }
-
   // Noise (hash grain)
   if (u_noise == 1) {
     float grain = (hash21b(v_uv * u_resolution) * 2.0 - 1.0) * u_noiseAmount;
     rgb = clamp(rgb + vec3(grain), 0.0, 1.0);
-  }
-
-  // Edge detection (Sobel on source texture)
-  if (u_edgeDetect == 1) {
-    float gx =
-      -lumAt(v_uv + texel*vec2(-1,-1)) + lumAt(v_uv + texel*vec2(1,-1))
-      - 2.0*lumAt(v_uv + texel*vec2(-1, 0)) + 2.0*lumAt(v_uv + texel*vec2(1, 0))
-      - lumAt(v_uv + texel*vec2(-1, 1)) + lumAt(v_uv + texel*vec2(1, 1));
-    float gy =
-      -lumAt(v_uv + texel*vec2(-1,-1)) - 2.0*lumAt(v_uv + texel*vec2(0,-1)) - lumAt(v_uv + texel*vec2(1,-1))
-      + lumAt(v_uv + texel*vec2(-1, 1)) + 2.0*lumAt(v_uv + texel*vec2(0, 1)) + lumAt(v_uv + texel*vec2(1, 1));
-    float mag = sqrt(gx*gx + gy*gy);
-    if (mag > u_edgeThreshold) rgb = u_edgeColor;
   }
 
   // Scanlines
@@ -553,4 +524,358 @@ void main() {
 
   float alpha = inDot ? u_opacity : 0.0;
   fragColor = vec4(mix(u_bgColor, dotColor, alpha), 1.0);
+}`;
+
+// ─── Halftone (Screentone) ────────────────────────────────────────────────────
+export const FS_HALFTONE = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2  u_resolution;
+uniform float u_gridSize;     // dot pitch in px
+uniform float u_angle;        // screen angle in radians
+uniform int   u_shape;        // 0=circle 1=ellipse 2=line 3=diamond
+uniform vec3  u_bgColor;
+uniform vec3  u_fgColor;
+uniform int   u_invert;
+uniform float u_blendOriginal;
+uniform float u_gamma;
+uniform float u_contrast;
+uniform float u_brightness;
+out vec4 fragColor;
+
+void main() {
+  vec4 src = texture(u_tex, v_uv);
+  vec2 px = v_uv * u_resolution;
+  float cosA = cos(u_angle);
+  float sinA = sin(u_angle);
+
+  // Rotate pixel to grid space
+  vec2 rot = vec2(px.x * cosA + px.y * sinA, -px.x * sinA + px.y * cosA);
+  vec2 cell = floor(rot / u_gridSize);
+
+  // Unrotate cell center back to screen space, then sample source
+  vec2 cellCenter = (cell + 0.5) * u_gridSize;
+  vec2 centerWorld = vec2(cellCenter.x * cosA - cellCenter.y * sinA,
+                          cellCenter.x * sinA + cellCenter.y * cosA);
+  vec2 sampleUV = clamp(centerWorld / u_resolution, vec2(0.0), vec2(1.0));
+  float cellLum = dot(texture(u_tex, sampleUV).rgb, vec3(0.2126, 0.7152, 0.0722));
+  cellLum = clamp((cellLum + u_brightness) * u_contrast, 0.0, 1.0);
+  if (u_gamma != 1.0) cellLum = pow(max(cellLum, 0.0001), 1.0 / max(u_gamma, 0.0001));
+  if (u_invert == 1) cellLum = 1.0 - cellLum;
+
+  float radius = (1.0 - cellLum) * u_gridSize * 0.5;
+  vec2 d = rot - (cell + 0.5) * u_gridSize;
+
+  bool inDot;
+  if (u_shape == 1) {
+    inDot = (d.x*d.x / max(radius*radius*1.4, 0.001) + d.y*d.y / max(radius*radius*0.7, 0.001)) < 1.0;
+  } else if (u_shape == 2) {
+    inDot = abs(d.y) < max(radius * 0.6, 0.001);
+  } else if (u_shape == 3) {
+    inDot = (abs(d.x) + abs(d.y)) < radius * 1.414;
+  } else {
+    inDot = dot(d, d) < radius * radius;
+  }
+
+  vec3 rgb = inDot ? u_fgColor : u_bgColor;
+  rgb = mix(rgb, src.rgb, u_blendOriginal);
+  fragColor = vec4(clamp(rgb, 0.0, 1.0), src.a);
+}`;
+
+// ─── Blockify (Mosaic / Pixelation) ──────────────────────────────────────────
+export const FS_BLOCKIFY = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2  u_resolution;
+uniform float u_blockSize;
+uniform int   u_edgeHighlight;
+uniform vec3  u_edgeColor;
+uniform float u_edgeWidth;
+uniform float u_blendOriginal;
+out vec4 fragColor;
+
+void main() {
+  vec2 px = v_uv * u_resolution;
+  vec2 bs = vec2(u_blockSize);
+  vec2 blockUV = (floor(px / bs) + 0.5) * bs / u_resolution;
+  blockUV = clamp(blockUV, vec2(0.0), vec2(1.0));
+  vec4 blockColor = texture(u_tex, blockUV);
+
+  bool onEdge = false;
+  if (u_edgeHighlight == 1) {
+    vec2 pos = mod(px, bs);
+    onEdge = pos.x < u_edgeWidth || pos.y < u_edgeWidth;
+  }
+
+  vec3 rgb = onEdge ? u_edgeColor : blockColor.rgb;
+  rgb = mix(rgb, texture(u_tex, v_uv).rgb, u_blendOriginal);
+  fragColor = vec4(clamp(rgb, 0.0, 1.0), 1.0);
+}`;
+
+// ─── Threshold Effect ─────────────────────────────────────────────────────────
+export const FS_THRESHOLD_EFFECT = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform int   u_mode;          // 0=binary 1=duotone
+uniform float u_threshold;
+uniform vec3  u_colorA;
+uniform vec3  u_colorB;
+uniform int   u_invert;
+uniform float u_blendOriginal;
+out vec4 fragColor;
+
+void main() {
+  vec4 src = texture(u_tex, v_uv);
+  float lum = dot(src.rgb, vec3(0.2126, 0.7152, 0.0722));
+  if (u_invert == 1) lum = 1.0 - lum;
+
+  vec3 rgb;
+  if (u_mode == 1) {
+    rgb = mix(u_colorA, u_colorB, lum);
+  } else {
+    rgb = lum >= u_threshold ? u_colorB : u_colorA;
+  }
+
+  rgb = mix(rgb, src.rgb, u_blendOriginal);
+  fragColor = vec4(clamp(rgb, 0.0, 1.0), src.a);
+}`;
+
+// ─── Edge Detection ───────────────────────────────────────────────────────────
+export const FS_EDGE_DETECTION = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2  u_resolution;
+uniform int   u_algorithm;    // 0=sobel 1=prewitt 2=laplacian 3=roberts
+uniform float u_threshold;
+uniform int   u_mode;         // 0=on-black 1=on-white 2=on-original 3=colored
+uniform vec3  u_edgeColor;
+uniform vec3  u_bgColor;
+uniform int   u_invert;
+uniform float u_blendOriginal;
+uniform int   u_colorByAngle;
+out vec4 fragColor;
+
+float lumAt(vec2 uv) {
+  return dot(texture(u_tex, uv).rgb, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main() {
+  vec4 src = texture(u_tex, v_uv);
+  vec2 t = 1.0 / u_resolution;
+  float gx = 0.0, gy = 0.0;
+
+  if (u_algorithm == 2) {
+    float c = lumAt(v_uv);
+    gx = abs(-4.0*c + lumAt(v_uv+t*vec2(0,1)) + lumAt(v_uv+t*vec2(0,-1))
+             + lumAt(v_uv+t*vec2(1,0)) + lumAt(v_uv+t*vec2(-1,0)));
+  } else if (u_algorithm == 3) {
+    float c00 = lumAt(v_uv);
+    float c10 = lumAt(v_uv + t*vec2(1, 0));
+    float c01 = lumAt(v_uv + t*vec2(0,-1));
+    float c11 = lumAt(v_uv + t*vec2(1,-1));
+    gx = c00 - c11; gy = c10 - c01;
+  } else if (u_algorithm == 1) {
+    gx = (-lumAt(v_uv+t*vec2(-1,-1)) + lumAt(v_uv+t*vec2(1,-1))
+         - lumAt(v_uv+t*vec2(-1, 0)) + lumAt(v_uv+t*vec2(1, 0))
+         - lumAt(v_uv+t*vec2(-1, 1)) + lumAt(v_uv+t*vec2(1, 1)));
+    gy = (-lumAt(v_uv+t*vec2(-1,-1)) - lumAt(v_uv+t*vec2(0,-1)) - lumAt(v_uv+t*vec2(1,-1))
+         + lumAt(v_uv+t*vec2(-1, 1)) + lumAt(v_uv+t*vec2(0, 1)) + lumAt(v_uv+t*vec2(1, 1)));
+  } else {
+    gx = (-lumAt(v_uv+t*vec2(-1,-1)) + lumAt(v_uv+t*vec2(1,-1))
+         - 2.0*lumAt(v_uv+t*vec2(-1, 0)) + 2.0*lumAt(v_uv+t*vec2(1, 0))
+         - lumAt(v_uv+t*vec2(-1, 1)) + lumAt(v_uv+t*vec2(1, 1)));
+    gy = (-lumAt(v_uv+t*vec2(-1,-1)) - 2.0*lumAt(v_uv+t*vec2(0,-1)) - lumAt(v_uv+t*vec2(1,-1))
+         + lumAt(v_uv+t*vec2(-1, 1)) + 2.0*lumAt(v_uv+t*vec2(0, 1)) + lumAt(v_uv+t*vec2(1, 1)));
+  }
+
+  float mag = (u_algorithm == 2) ? gx : sqrt(gx*gx + gy*gy);
+  if (u_invert == 1) mag = 1.0 - mag;
+  bool isEdge = mag > u_threshold;
+
+  vec3 rgb;
+  if (isEdge) {
+    if (u_colorByAngle == 1 && u_algorithm != 2) {
+      float angle = atan(gy, gx) / 3.14159 * 0.5 + 0.5;
+      rgb = vec3(angle, 1.0 - angle, abs(gy / (mag + 0.001)));
+    } else {
+      rgb = u_edgeColor;
+    }
+  } else {
+    if (u_mode == 0)      rgb = vec3(0.0);
+    else if (u_mode == 1) rgb = vec3(1.0);
+    else if (u_mode == 2) rgb = src.rgb;
+    else                  rgb = u_bgColor;
+  }
+
+  rgb = mix(rgb, src.rgb, u_blendOriginal);
+  fragColor = vec4(clamp(rgb, 0.0, 1.0), src.a);
+}`;
+
+// ─── VHS Tape Distortion ─────────────────────────────────────────────────────
+export const FS_VHS = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2  u_resolution;
+uniform float u_colorBleed;
+uniform float u_ghosting;
+uniform float u_scanlineIntensity;
+uniform float u_noiseAmount;
+uniform float u_hSync;
+uniform float u_luma;
+uniform float u_saturation;
+uniform float u_tracking;
+uniform float u_static;
+uniform int   u_rgbOffset;
+uniform float u_rgbOffsetAmount;
+uniform float u_blendOriginal;
+uniform float u_frame;
+out vec4 fragColor;
+
+float hash21v(vec2 p) {
+  p = fract(p * vec2(127.1, 311.7));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+void main() {
+  vec2 uv = v_uv;
+  float texelX = 1.0 / u_resolution.x;
+
+  // hSync jitter
+  if (u_hSync > 0.001) {
+    float row = floor(uv.y * u_resolution.y);
+    float jitter = (hash21v(vec2(row * 0.1 + u_frame * 0.07, row * 0.3)) * 2.0 - 1.0) * u_hSync * 0.03;
+    uv.x = clamp(uv.x + jitter, 0.0, 1.0);
+  }
+
+  // Tracking bands
+  if (u_tracking > 0.001) {
+    float band = hash21v(vec2(floor(uv.y * 60.0 + u_frame * 0.3) * 11.7, 42.0));
+    if (band > (1.0 - u_tracking * 0.3)) {
+      uv.x = clamp(uv.x + (hash21v(vec2(uv.y * 200.0 + u_frame, 7.1)) * 2.0 - 1.0) * 0.08, 0.0, 1.0);
+    }
+  }
+
+  // Color bleed (chroma smear)
+  vec4 src;
+  if (u_colorBleed > 0.001) {
+    float bleedOff = u_colorBleed * texelX;
+    src.r = texture(u_tex, clamp(uv + vec2(bleedOff, 0.0), vec2(0.0), vec2(1.0))).r;
+    src.g = texture(u_tex, uv).g;
+    src.b = texture(u_tex, clamp(uv - vec2(bleedOff * 0.5, 0.0), vec2(0.0), vec2(1.0))).b;
+    src.a = texture(u_tex, uv).a;
+  } else {
+    src = texture(u_tex, uv);
+  }
+
+  vec3 rgb = src.rgb;
+
+  // RGB offset (chromatic aberration)
+  if (u_rgbOffset == 1 && u_rgbOffsetAmount > 0.0) {
+    float off = u_rgbOffsetAmount * texelX;
+    rgb.r = texture(u_tex, clamp(uv + vec2(off, 0.0),  vec2(0.0), vec2(1.0))).r;
+    rgb.b = texture(u_tex, clamp(uv - vec2(off, 0.0),  vec2(0.0), vec2(1.0))).b;
+  }
+
+  // Ghosting
+  if (u_ghosting > 0.001) {
+    float gOff = u_ghosting * texelX;
+    float ghost = texture(u_tex, clamp(uv - vec2(gOff, 0.0), vec2(0.0), vec2(1.0))).r;
+    rgb.r = clamp(rgb.r * 0.75 + ghost * 0.35, 0.0, 1.0);
+  }
+
+  // Luma washout
+  if (u_luma > 0.001) {
+    float lm = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    rgb = mix(rgb, vec3(lm * 1.1 + 0.05), u_luma * 0.7);
+  }
+
+  // Saturation
+  float lumSat = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+  rgb = mix(vec3(lumSat), rgb, u_saturation);
+
+  // Scanlines
+  if (u_scanlineIntensity > 0.001) {
+    float line = mod(floor(v_uv.y * u_resolution.y), 2.0);
+    rgb *= 1.0 - line * u_scanlineIntensity * 0.6;
+  }
+
+  // Video noise
+  if (u_noiseAmount > 0.001) {
+    float n = hash21v(v_uv * u_resolution + vec2(u_frame * 13.7, u_frame * 7.3)) * 2.0 - 1.0;
+    rgb = clamp(rgb + vec3(n * u_noiseAmount), 0.0, 1.0);
+  }
+
+  // Static overlay
+  if (u_static > 0.001) {
+    float st = hash21v(v_uv * u_resolution * 0.5 + vec2(u_frame * 99.0, u_frame * 51.0));
+    if (st > (1.0 - u_static * 0.3)) rgb = vec3(st);
+  }
+
+  rgb = mix(rgb, texture(u_tex, v_uv).rgb, u_blendOriginal);
+  fragColor = vec4(clamp(rgb, 0.0, 1.0), src.a);
+}`;
+
+// ─── Contour Lines ────────────────────────────────────────────────────────────
+export const FS_CONTOUR = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2  u_resolution;
+uniform int   u_mode;          // 0=sobel 1=laplacian
+uniform float u_threshold;
+uniform vec3  u_lineColor;
+uniform vec3  u_bgColor;
+uniform int   u_transparent;
+uniform int   u_colorize;
+uniform vec3  u_colorA;
+uniform vec3  u_colorB;
+uniform float u_blendOriginal;
+uniform int   u_invertEdges;
+out vec4 fragColor;
+
+float lumAt(vec2 uv) {
+  return dot(texture(u_tex, uv).rgb, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main() {
+  vec4 src = texture(u_tex, v_uv);
+  vec2 t = 1.0 / u_resolution;
+  float gx = 0.0, gy = 0.0;
+
+  if (u_mode == 1) {
+    float c = lumAt(v_uv);
+    gx = abs(-4.0*c + lumAt(v_uv+t*vec2(0,1)) + lumAt(v_uv+t*vec2(0,-1))
+             + lumAt(v_uv+t*vec2(1,0)) + lumAt(v_uv+t*vec2(-1,0)));
+  } else {
+    gx = (-lumAt(v_uv+t*vec2(-1,-1)) + lumAt(v_uv+t*vec2(1,-1))
+         - 2.0*lumAt(v_uv+t*vec2(-1,0)) + 2.0*lumAt(v_uv+t*vec2(1,0))
+         - lumAt(v_uv+t*vec2(-1,1)) + lumAt(v_uv+t*vec2(1,1)));
+    gy = (-lumAt(v_uv+t*vec2(-1,-1)) - 2.0*lumAt(v_uv+t*vec2(0,-1)) - lumAt(v_uv+t*vec2(1,-1))
+         + lumAt(v_uv+t*vec2(-1,1)) + 2.0*lumAt(v_uv+t*vec2(0,1)) + lumAt(v_uv+t*vec2(1,1)));
+  }
+
+  float mag = (u_mode == 1) ? gx : sqrt(gx*gx + gy*gy);
+  bool isEdge = mag > u_threshold;
+  if (u_invertEdges == 1) isEdge = !isEdge;
+
+  vec3 rgb;
+  if (isEdge) {
+    if (u_colorize == 1 && u_mode == 0) {
+      float t2 = atan(gy, gx) / 3.14159 * 0.5 + 0.5;
+      rgb = mix(u_colorA, u_colorB, t2);
+    } else {
+      rgb = u_lineColor;
+    }
+  } else {
+    rgb = u_transparent == 1 ? src.rgb : u_bgColor;
+  }
+
+  rgb = mix(rgb, src.rgb, u_blendOriginal);
+  fragColor = vec4(clamp(rgb, 0.0, 1.0), 1.0);
 }`;

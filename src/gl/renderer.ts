@@ -8,6 +8,7 @@ import {
   VS, FS_PASSTHROUGH, FS_ADJUSTMENTS, FS_THERMAL,
   FS_NIGHTVISION, FS_INFRARED, FS_BAYER, FS_BRUTALIST,
   FS_TOPO, FS_POINTCLOUD,
+  FS_HALFTONE, FS_BLOCKIFY, FS_THRESHOLD_EFFECT, FS_EDGE_DETECTION, FS_VHS, FS_CONTOUR,
 } from './shaders';
 import type { ActiveEffect, EffectParams, Adjustments, DitherAlgo } from '../types';
 
@@ -135,15 +136,21 @@ class GlRenderer {
 
     // Compile programs
     const shaderDefs: [string, string][] = [
-      ['passthrough', FS_PASSTHROUGH],
-      ['adjustments', FS_ADJUSTMENTS],
-      ['thermal',     FS_THERMAL],
-      ['nightvision', FS_NIGHTVISION],
-      ['infrared',    FS_INFRARED],
-      ['bayer',       FS_BAYER],
-      ['brutalist',   FS_BRUTALIST],
-      ['topo',        FS_TOPO],
-      ['pointcloud',  FS_POINTCLOUD],
+      ['passthrough',       FS_PASSTHROUGH],
+      ['adjustments',       FS_ADJUSTMENTS],
+      ['thermal',           FS_THERMAL],
+      ['nightvision',       FS_NIGHTVISION],
+      ['infrared',          FS_INFRARED],
+      ['bayer',             FS_BAYER],
+      ['brutalist',         FS_BRUTALIST],
+      ['topo',              FS_TOPO],
+      ['pointcloud',        FS_POINTCLOUD],
+      ['halftone',          FS_HALFTONE],
+      ['blockify',          FS_BLOCKIFY],
+      ['threshold-effect',  FS_THRESHOLD_EFFECT],
+      ['edge-detection',    FS_EDGE_DETECTION],
+      ['vhs',               FS_VHS],
+      ['contour',           FS_CONTOUR],
     ];
     for (const [key, fs] of shaderDefs) {
       const prog = this._compile(VS, fs);
@@ -430,18 +437,12 @@ class GlRenderer {
   private _runBrutalist(p: EffectParams['brutalist']) {
     const key = 'brutalist';
     const gl = this.gl;
-    const [er, eg, eb] = hexToVec3(p.edgeColor ?? '#ffffff');
     this._pass(key, (prog) => {
       gl.uniform2f(this._ul(key, prog, 'u_resolution'), this._w, this._h);
       gl.uniform1i(this._ul(key, prog, 'u_posterize'), p.posterize ? 1 : 0);
       gl.uniform1f(this._ul(key, prog, 'u_posterizeLevels'), p.posterizeLevels);
-      gl.uniform1i(this._ul(key, prog, 'u_threshold'), p.threshold ? 1 : 0);
-      gl.uniform1f(this._ul(key, prog, 'u_thresholdValue'), p.thresholdValue / 255);
       gl.uniform1i(this._ul(key, prog, 'u_noise'), p.noise ? 1 : 0);
       gl.uniform1f(this._ul(key, prog, 'u_noiseAmount'), p.noiseAmount / 100);
-      gl.uniform1i(this._ul(key, prog, 'u_edgeDetect'), p.edgeDetect ? 1 : 0);
-      gl.uniform1f(this._ul(key, prog, 'u_edgeThreshold'), p.edgeThreshold / 255);
-      gl.uniform3f(this._ul(key, prog, 'u_edgeColor'), er, eg, eb);
       gl.uniform1i(this._ul(key, prog, 'u_chromatic'), p.chromaticAberration ? 1 : 0);
       gl.uniform1f(this._ul(key, prog, 'u_chromaticAmount'), p.chromaticAmount);
       gl.uniform1i(this._ul(key, prog, 'u_scanlines'), p.scanlines ? 1 : 0);
@@ -497,6 +498,125 @@ class GlRenderer {
     });
   }
 
+  // ── New GPU effect passes ──────────────────────────────────────────────────
+
+  private _runHalftone(p: EffectParams['halftone']) {
+    const key = 'halftone';
+    const gl = this.gl;
+    const [bgR, bgG, bgB] = hexToVec3(p.bgColor ?? '#ffffff');
+    const [fgR, fgG, fgB] = hexToVec3(p.fgColor ?? '#000000');
+    const shapeMap: Record<string, number> = { circle: 0, ellipse: 1, line: 2, diamond: 3 };
+    this._pass(key, (prog) => {
+      gl.uniform2f(this._ul(key, prog, 'u_resolution'), this._w, this._h);
+      gl.uniform1f(this._ul(key, prog, 'u_gridSize'), Math.max(2, p.gridSize));
+      gl.uniform1f(this._ul(key, prog, 'u_angle'), ((p.angle ?? 15) * Math.PI) / 180);
+      gl.uniform1i(this._ul(key, prog, 'u_shape'), shapeMap[p.dotShape ?? 'circle'] ?? 0);
+      gl.uniform3f(this._ul(key, prog, 'u_bgColor'), bgR, bgG, bgB);
+      gl.uniform3f(this._ul(key, prog, 'u_fgColor'), fgR, fgG, fgB);
+      gl.uniform1i(this._ul(key, prog, 'u_invert'), p.invert ? 1 : 0);
+      gl.uniform1f(this._ul(key, prog, 'u_blendOriginal'), (p.blendOriginal ?? 0) / 100);
+      gl.uniform1f(this._ul(key, prog, 'u_gamma'), p.gamma ?? 1.0);
+      gl.uniform1f(this._ul(key, prog, 'u_contrast'), (100 + (p.contrast ?? 0)) / 100);
+      gl.uniform1f(this._ul(key, prog, 'u_brightness'), (p.brightness ?? 0) / 100);
+    });
+  }
+
+  private _runBlockify(p: EffectParams['blockify']) {
+    const key = 'blockify';
+    const gl = this.gl;
+    const [er, eg, eb] = hexToVec3(p.edgeColor ?? '#000000');
+    this._pass(key, (prog) => {
+      gl.uniform2f(this._ul(key, prog, 'u_resolution'), this._w, this._h);
+      gl.uniform1f(this._ul(key, prog, 'u_blockSize'), Math.max(4, p.blockSize));
+      gl.uniform1i(this._ul(key, prog, 'u_edgeHighlight'), p.edgeHighlight ? 1 : 0);
+      gl.uniform3f(this._ul(key, prog, 'u_edgeColor'), er, eg, eb);
+      gl.uniform1f(this._ul(key, prog, 'u_edgeWidth'), p.edgeWidth ?? 1);
+      gl.uniform1f(this._ul(key, prog, 'u_blendOriginal'), (p.blendOriginal ?? 0) / 100);
+    });
+  }
+
+  private _runThresholdEffect(p: EffectParams['threshold-effect']) {
+    const key = 'threshold-effect';
+    const gl = this.gl;
+    const modeMap: Record<string, number> = { binary: 0, duotone: 1, adaptive: 0, multi: 0 };
+    const [ar, ag, ab] = hexToVec3(p.colorA ?? '#000000');
+    const [br, bg2, bb] = hexToVec3(p.colorB ?? '#ffffff');
+    this._pass(key, (prog) => {
+      gl.uniform1i(this._ul(key, prog, 'u_mode'), modeMap[p.mode ?? 'binary'] ?? 0);
+      gl.uniform1f(this._ul(key, prog, 'u_threshold'), (p.threshold ?? 128) / 255);
+      gl.uniform3f(this._ul(key, prog, 'u_colorA'), ar, ag, ab);
+      gl.uniform3f(this._ul(key, prog, 'u_colorB'), br, bg2, bb);
+      gl.uniform1i(this._ul(key, prog, 'u_invert'), p.invert ? 1 : 0);
+      gl.uniform1f(this._ul(key, prog, 'u_blendOriginal'), (p.blendOriginal ?? 0) / 100);
+    });
+  }
+
+  private _runEdgeDetection(p: EffectParams['edge-detection']) {
+    const key = 'edge-detection';
+    const gl = this.gl;
+    const algoMap: Record<string, number> = { sobel: 0, prewitt: 1, laplacian: 2, roberts: 3 };
+    const modeMap: Record<string, number> = { 'on-black': 0, 'on-white': 1, 'on-original': 2, 'colored': 3 };
+    const [er, eg, eb] = hexToVec3(p.edgeColor ?? '#ffffff');
+    const [bgr, bgg, bgb] = hexToVec3(p.bgColor ?? '#000000');
+    this._pass(key, (prog) => {
+      gl.uniform2f(this._ul(key, prog, 'u_resolution'), this._w, this._h);
+      gl.uniform1i(this._ul(key, prog, 'u_algorithm'), algoMap[p.algorithm ?? 'sobel'] ?? 0);
+      gl.uniform1f(this._ul(key, prog, 'u_threshold'), (p.threshold ?? 50) / 255);
+      gl.uniform1i(this._ul(key, prog, 'u_mode'), modeMap[p.mode ?? 'on-black'] ?? 0);
+      gl.uniform3f(this._ul(key, prog, 'u_edgeColor'), er, eg, eb);
+      gl.uniform3f(this._ul(key, prog, 'u_bgColor'), bgr, bgg, bgb);
+      gl.uniform1i(this._ul(key, prog, 'u_invert'), p.invert ? 1 : 0);
+      gl.uniform1f(this._ul(key, prog, 'u_blendOriginal'), (p.blendOriginal ?? 0) / 100);
+      gl.uniform1i(this._ul(key, prog, 'u_colorByAngle'), p.colorByAngle ? 1 : 0);
+    });
+  }
+
+  private _runVhs(p: EffectParams['vhs'], frameIdx: number) {
+    const key = 'vhs';
+    const gl = this.gl;
+    const tapeNoiseMap: Record<string, number> = { SP: 0.05, LP: 0.15, EP: 0.3 };
+    const tapeMultiplier = tapeNoiseMap[p.tapeSpeed ?? 'SP'];
+    this._pass(key, (prog) => {
+      gl.uniform2f(this._ul(key, prog, 'u_resolution'), this._w, this._h);
+      gl.uniform1f(this._ul(key, prog, 'u_colorBleed'), (p.colorBleed ?? 5) / this._w);
+      gl.uniform1f(this._ul(key, prog, 'u_ghosting'), (p.ghosting ?? 0) / this._w);
+      gl.uniform1f(this._ul(key, prog, 'u_scanlineIntensity'), p.scanlineIntensity ?? 0.3);
+      gl.uniform1f(this._ul(key, prog, 'u_noiseAmount'), (p.noiseAmount ?? 20) / 100 * (1 + tapeMultiplier));
+      gl.uniform1f(this._ul(key, prog, 'u_hSync'), (p.hSync ?? 10) / 100);
+      gl.uniform1f(this._ul(key, prog, 'u_luma'), (p.luma ?? 0) / 100);
+      gl.uniform1f(this._ul(key, prog, 'u_saturation'), (p.saturation ?? 100) / 100);
+      gl.uniform1f(this._ul(key, prog, 'u_tracking'), (p.tracking ?? 20) / 100);
+      gl.uniform1f(this._ul(key, prog, 'u_static'), (p.static ?? 0) / 100);
+      gl.uniform1i(this._ul(key, prog, 'u_rgbOffset'), p.rgbOffset ? 1 : 0);
+      gl.uniform1f(this._ul(key, prog, 'u_rgbOffsetAmount'), (p.rgbOffsetAmount ?? 0) / this._w);
+      gl.uniform1f(this._ul(key, prog, 'u_blendOriginal'), (p.blendOriginal ?? 0) / 100);
+      gl.uniform1f(this._ul(key, prog, 'u_frame'), frameIdx);
+    });
+  }
+
+  private _runContour(p: EffectParams['contour']) {
+    const key = 'contour';
+    const gl = this.gl;
+    const modeMap: Record<string, number> = { sobel: 0, laplacian: 1, canny: 0 };
+    const [lr, lg, lb] = hexToVec3(p.lineColor ?? '#ffffff');
+    const [bgr, bgg, bgb] = hexToVec3(p.bgColor ?? '#000000');
+    const [ar, ag, ab] = hexToVec3(p.colorA ?? '#ff0000');
+    const [br2, bg2, bb2] = hexToVec3(p.colorB ?? '#0000ff');
+    this._pass(key, (prog) => {
+      gl.uniform2f(this._ul(key, prog, 'u_resolution'), this._w, this._h);
+      gl.uniform1i(this._ul(key, prog, 'u_mode'), modeMap[p.mode ?? 'sobel'] ?? 0);
+      gl.uniform1f(this._ul(key, prog, 'u_threshold'), (p.threshold ?? 30) / 255);
+      gl.uniform3f(this._ul(key, prog, 'u_lineColor'), lr, lg, lb);
+      gl.uniform3f(this._ul(key, prog, 'u_bgColor'), bgr, bgg, bgb);
+      gl.uniform1i(this._ul(key, prog, 'u_transparent'), p.bgTransparent ? 1 : 0);
+      gl.uniform1i(this._ul(key, prog, 'u_colorize'), p.colorize ? 1 : 0);
+      gl.uniform3f(this._ul(key, prog, 'u_colorA'), ar, ag, ab);
+      gl.uniform3f(this._ul(key, prog, 'u_colorB'), br2, bg2, bb2);
+      gl.uniform1f(this._ul(key, prog, 'u_blendOriginal'), (p.blendOriginal ?? 0) / 100);
+      gl.uniform1i(this._ul(key, prog, 'u_invertEdges'), p.invertEdges ? 1 : 0);
+    });
+  }
+
   // ── Main process ───────────────────────────────────────────────────────────
 
   process(
@@ -513,17 +633,29 @@ class GlRenderer {
     for (const effect of [...effects].reverse()) {
       if (!effect.enabled) continue;
       switch (effect.type) {
-        case 'dither':      this._runDither(params.dither);          break;
-        case 'thermal':     this._runThermal(params.thermal);        break;
-        case 'nightvision': this._runNightVision(params.nightvision, frameIdx); break;
-        case 'infrared':    this._runInfrared(params.infrared);      break;
-        case 'brutalist':   this._runBrutalist(params.brutalist);    break;
-        case 'topo':        this._runTopo(params.topo);              break;
-        case 'pointcloud':  this._runPointCloud(params.pointcloud);  break;
-        // ascii, cybersigilism: no GPU shader — must be handled via CPU readback
+        case 'dither':            this._runDither(params.dither);                    break;
+        case 'thermal':           this._runThermal(params.thermal);                  break;
+        case 'nightvision':       this._runNightVision(params.nightvision, frameIdx); break;
+        case 'infrared':          this._runInfrared(params.infrared);                break;
+        case 'brutalist':         this._runBrutalist(params.brutalist);              break;
+        case 'topo':              this._runTopo(params.topo);                        break;
+        case 'pointcloud':        this._runPointCloud(params.pointcloud);            break;
+        case 'halftone':          this._runHalftone(params.halftone);                break;
+        case 'blockify':          this._runBlockify(params.blockify);                break;
+        case 'threshold-effect':  this._runThresholdEffect(params['threshold-effect']); break;
+        case 'edge-detection':    this._runEdgeDetection(params['edge-detection']);  break;
+        case 'vhs':               this._runVhs(params.vhs, frameIdx);               break;
+        case 'contour':           this._runContour(params.contour);                  break;
+        // CPU-only: patched in via patchWithImageData() after this loop
         case 'ascii':
         case 'cybersigilism':
-          // These will be patched in via patchCPUEffect() after GPU processing
+        case 'matrix-rain':
+        case 'dots':
+        case 'crosshatch':
+        case 'wave-lines':
+        case 'noise-field':
+        case 'voronoi':
+        case 'pixel-sort':
           break;
       }
     }

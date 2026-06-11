@@ -39,7 +39,6 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
   const { appMode, resultImage, getDisplayCanvas } = useApp();
   const isVideo = appMode === 'video' || appMode === 'audio';
 
-
   const [quality, setQuality]       = useState(92);
 
   // ── GIF settings ──────────────────────────────────────────────────────────
@@ -49,7 +48,8 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
   const [gifScale,    setGifScale]    = useState(100); // %
 
   // ── WebM settings ─────────────────────────────────────────────────────────
-  const [webmBitrate, setWebmBitrate] = useState(12);  // Mbps
+  const [webmBitrate,  setWebmBitrate]  = useState(12);  // Mbps
+  const [webmDuration, setWebmDuration] = useState(10);  // seconds (audio viz only)
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [progress,    setProgress]    = useState<number | null>(null);
@@ -67,9 +67,15 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
 
   // ── Get current rendered frame ─────────────────────────────────────────────
   const getFrame = useCallback((): ImageData | null => {
+    // GPU path (most modes when at least one effect is active)
     if (glRenderer.ready && glRenderer.width > 0) return glRenderer.readback();
+    // Fallback: read directly from the display canvas (audio mode no-effects path)
+    const display = getDisplayCanvas();
+    if (display && display.width > 0 && display.height > 0) {
+      return display.getContext('2d')!.getImageData(0, 0, display.width, display.height);
+    }
     return resultImage;
-  }, [resultImage]);
+  }, [resultImage, getDisplayCanvas]);
 
   // ── Image export ──────────────────────────────────────────────────────────
   const exportImage = useCallback(async (fmt: ImgFormat) => {
@@ -231,6 +237,48 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
     if (wasPlaying) onPlay();
   }, [videoRef, isPlaying, onPlay, getDisplayCanvas, webmBitrate]);
 
+  // ── Audio visualizer WebM export (canvas capture, no video element needed) ──
+  const exportAudioViz = useCallback(async () => {
+    const displayCanvas = getDisplayCanvas();
+    if (!displayCanvas) return;
+    abortRef.current = false;
+    const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+      .find(m => MediaRecorder.isTypeSupported(m)) ?? 'video/webm';
+    const stream   = displayCanvas.captureStream(60);
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: webmBitrate * 1_000_000,
+    });
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    setStatus('Enregistrement…');
+    setProgress(0);
+    recorder.start(100);
+    const duration = webmDuration;
+    await new Promise<void>(resolve => {
+      const start = performance.now();
+      const tick = () => {
+        if (abortRef.current) { resolve(); return; }
+        const elapsed = (performance.now() - start) / 1000;
+        setProgress(Math.min(100, Math.round((elapsed / duration) * 100)));
+        if (elapsed >= duration) { resolve(); return; }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    recorder.stop();
+    await new Promise<void>(r => { recorder.onstop = () => r(); });
+    if (!abortRef.current) {
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      download(blob, `gme_viz_${ts()}.webm`);
+      setStatus('✓ WebM exporté');
+    } else {
+      setStatus('Annulé');
+    }
+    setProgress(null);
+    setTimeout(() => setStatus(''), 2000);
+  }, [getDisplayCanvas, webmBitrate, webmDuration]);
+
   const abort = () => { abortRef.current = true; };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -239,11 +287,9 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
     { id: 'jpeg', label: 'JPG'  },
     { id: 'webp', label: 'WEBP' },
   ];
-  const vidTabs: { id: VidFormat; label: string }[] = [
-    { id: 'frame', label: 'Image' },
-    { id: 'gif',   label: 'GIF'  },
-    { id: 'webm',  label: 'WebM' },
-  ];
+  const vidTabs: { id: VidFormat; label: string }[] = appMode === 'audio'
+    ? [{ id: 'frame', label: 'Image' }, { id: 'webm', label: 'WebM' }]
+    : [{ id: 'frame', label: 'Image' }, { id: 'gif', label: 'GIF' }, { id: 'webm', label: 'WebM' }];
   const tabs = isVideo ? vidTabs : imgTabs;
 
   return (
@@ -329,7 +375,19 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
                   onChange={e => setWebmBitrate(+e.target.value)} className="export-modal-slider" />
                 <span className="export-modal-val">{webmBitrate} Mbps</span>
               </label>
-              <div className="export-modal-info">Enregistrement en temps réel depuis le canvas GPU · 60fps</div>
+              {appMode === 'audio' && (
+                <label className="export-modal-row">
+                  <span className="export-modal-label">Durée</span>
+                  <input type="range" min={5} max={120} step={5} value={webmDuration}
+                    onChange={e => setWebmDuration(+e.target.value)} className="export-modal-slider" />
+                  <span className="export-modal-val">{webmDuration}s</span>
+                </label>
+              )}
+              <div className="export-modal-info">
+                {appMode === 'audio'
+                  ? `Capture du canvas visualiseur · ${webmDuration}s · 60fps`
+                  : 'Enregistrement en temps réel depuis le canvas GPU · 60fps'}
+              </div>
             </>
           )}
 
@@ -363,9 +421,9 @@ export function ExportModal({ videoRef, isPlaying, onClose, onPause, onPlay, pro
                 </>
               )}
               {/* Video mode */}
-              {isVideo && tab === 'frame'  && <button className="export-modal-btn export-modal-btn--primary" onClick={exportVideoFrame}>↓ Frame PNG</button>}
-              {isVideo && tab === 'gif'    && <button className="export-modal-btn export-modal-btn--primary" onClick={exportGif}>↓ Exporter GIF</button>}
-              {isVideo && tab === 'webm'   && <button className="export-modal-btn export-modal-btn--primary" onClick={exportWebm}>⏺ Exporter WebM</button>}
+              {isVideo && tab === 'frame' && <button className="export-modal-btn export-modal-btn--primary" onClick={exportVideoFrame}>↓ Frame PNG</button>}
+              {isVideo && tab === 'gif'   && <button className="export-modal-btn export-modal-btn--primary" onClick={exportGif}>↓ Exporter GIF</button>}
+              {isVideo && tab === 'webm'  && <button className="export-modal-btn export-modal-btn--primary" onClick={appMode === 'audio' ? exportAudioViz : exportWebm}>⏺ Exporter WebM</button>}
             </>
           )}
         </div>

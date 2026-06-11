@@ -79,27 +79,223 @@ export interface AsciiParams {
 export interface BrutalistParams {
   posterize: boolean;
   posterizeLevels: number;
-  threshold: boolean;
-  thresholdValue: number;
   glitch: boolean;
   glitchIntensity: number;
-  grid: boolean;
-  gridSpacing: number;
-  gridOpacity: number;
-  // New
-  edgeDetect: boolean;
-  edgeThreshold: number;      // 0–255
-  edgeColor: string;          // hex
+  glitchSeed: number;
   chromaticAberration: boolean;
   chromaticAmount: number;    // 1–20 px
   scanlines: boolean;
   scanlineIntensity: number;  // 0–1
-  pixelSort: boolean;
-  pixelSortAxis: 'horizontal' | 'vertical';
-  pixelSortThreshold: number; // luminance threshold 0–255
-  glitchSeed: number;         // vary glitch pattern
+  grid: boolean;
+  gridSpacing: number;
+  gridOpacity: number;
   noise: boolean;
   noiseAmount: number;        // 0–100 grain intensity
+}
+
+export interface HalftoneParams {
+  angle: number;              // 0–45 screen angle
+  gridSize: number;           // 2–40px dot pitch
+  mode: 'mono' | 'cmyk' | 'rgb' | 'custom';
+  dotShape: 'circle' | 'ellipse' | 'line' | 'diamond';
+  invert: boolean;
+  bgColor: string;
+  fgColor: string;
+  gamma: number;              // 0.5–3.0
+  blendOriginal: number;      // 0–100
+  softEdge: boolean;
+  contrast: number;           // -50 to 50
+  brightness: number;         // -50 to 50
+}
+
+export interface MatrixRainParams {
+  chars: string;
+  fontSize: number;           // 6–32
+  speed: number;              // 0.5–5 fall speed
+  density: number;            // 20–100 column density %
+  color: string;
+  bgColor: string;
+  bgOpacity: number;          // 0–1
+  trailLength: number;        // 0.1–0.98 persistence
+  glowEffect: boolean;
+  colorVariance: number;      // 0–1 hue range
+  seed: number;
+}
+
+export interface DotsParams {
+  gridType: 'square' | 'hex' | 'triangular' | 'random';
+  dotSize: number;            // 1–30px
+  spacing: number;            // 2–40px
+  colorMode: 'original' | 'mono' | 'accent' | 'gradient';
+  accentColor: string;
+  bgColor: string;
+  dotShape: 'circle' | 'square' | 'star' | 'ring';
+  invert: boolean;
+  sizeByLum: boolean;
+  opacity: number;            // 0–100
+  angle: number;              // 0–90 grid rotation
+  jitter: number;             // 0–1
+  minSize: number;
+}
+
+export interface ContourParams {
+  mode: 'sobel' | 'laplacian' | 'canny';
+  threshold: number;          // 10–255
+  lineColor: string;
+  bgColor: string;
+  bgTransparent: boolean;
+  lineWidth: number;
+  smooth: boolean;
+  smoothRadius: number;       // 0–5
+  colorize: boolean;
+  colorA: string;
+  colorB: string;
+  blendOriginal: number;
+  invertEdges: boolean;
+}
+
+export interface PixelSortParams {
+  axis: 'horizontal' | 'vertical' | 'both';
+  threshold: number;          // 0–255
+  mode: 'luminance' | 'hue' | 'saturation' | 'red' | 'green' | 'blue';
+  direction: 'ascending' | 'descending';
+  segmented: boolean;
+  blendOriginal: number;
+  chunkSize: number;          // 10–9999 max sort segment
+  skipChance: number;         // 0–1
+}
+
+export interface BlockifyParams {
+  blockSize: number;          // 4–64px
+  samplingMode: 'center' | 'average' | 'random';
+  colorMode: 'original' | 'quantize' | 'palette';
+  levels: number;             // 2–32 quantization
+  edgeHighlight: boolean;
+  edgeColor: string;
+  edgeWidth: number;
+  roundCorners: boolean;
+  cornerRadius: number;       // 0–0.5 fraction
+  blendOriginal: number;
+}
+
+export interface ThresholdEffectParams {
+  mode: 'binary' | 'adaptive' | 'multi' | 'duotone';
+  threshold: number;          // 0–255
+  adaptiveRadius: number;     // 1–30
+  adaptiveOffset: number;     // -100 to 100
+  levels: number;             // 2–8 multi
+  colorA: string;
+  colorB: string;
+  colorC: string;
+  invert: boolean;
+  blendOriginal: number;
+}
+
+export interface EdgeDetectionParams {
+  algorithm: 'sobel' | 'prewitt' | 'laplacian' | 'roberts';
+  threshold: number;          // 0–255
+  mode: 'on-black' | 'on-white' | 'on-original' | 'colored';
+  edgeColor: string;
+  bgColor: string;
+  lineWidth: number;
+  invert: boolean;
+  blendOriginal: number;
+  colorByAngle: boolean;
+  luminanceOnly: boolean;
+}
+
+export interface CrosshatchParams {
+  layers: number;             // 1–4
+  angle1: number;             // 0–180
+  angle2: number;
+  angle3: number;
+  angle4: number;
+  spacing: number;            // 2–30
+  lineWidth: number;          // 0.5–3
+  color: string;
+  bgColor: string;
+  bgTransparent: boolean;
+  lumDriven: boolean;
+  minSpacing: number;
+  maxSpacing: number;
+  blendOriginal: number;
+  contrast: number;
+}
+
+export interface WaveLinesParams {
+  waveType: 'sine' | 'noise' | 'square' | 'sawtooth' | 'combined';
+  lineCount: number;          // 10–200
+  amplitude: number;          // 0–150 px
+  frequency: number;          // 0.5–20
+  lineWidth: number;          // 0.5–5
+  color: string;
+  bgColor: string;
+  bgTransparent: boolean;
+  colorMode: 'solid' | 'gradient' | 'fromImage';
+  gradientA: string;
+  gradientB: string;
+  lumDriven: boolean;
+  phase: number;              // 0–360
+  noiseScale: number;
+  blendOriginal: number;
+  invert: boolean;
+}
+
+export interface NoiseFieldParams {
+  noiseType: 'value' | 'fractal' | 'domain-warp';
+  scale: number;              // 0.5–20
+  octaves: number;            // 1–8
+  persistence: number;        // 0.1–1.0
+  lacunarity: number;         // 1.5–4.0
+  brightness: number;
+  contrast: number;
+  colorMode: 'grayscale' | 'heatmap' | 'plasma' | 'custom';
+  colorA: string;
+  colorB: string;
+  blendOriginal: number;
+  blendMode: 'normal' | 'screen' | 'multiply' | 'overlay';
+  seed: number;
+  offsetX: number;            // for live/audio animation
+  offsetY: number;
+}
+
+export interface VoronoiParams {
+  cellCount: number;          // 4–200
+  mode: 'fill' | 'edges' | 'edges-fill' | 'points';
+  colorMode: 'fromImage' | 'random' | 'gradient' | 'mono';
+  edgeColor: string;
+  edgeWidth: number;
+  bgColor: string;
+  seed: number;
+  jitter: number;             // 0–1
+  gradientA: string;
+  gradientB: string;
+  blendOriginal: number;
+  distanceMetric: 'euclidean' | 'manhattan' | 'chebyshev';
+}
+
+export interface VhsParams {
+  tracking: number;           // 0–100
+  colorBleed: number;         // 0–50 chroma smear px
+  ghosting: number;           // 0–50 ghost offset px
+  scanlineIntensity: number;  // 0–1
+  noiseAmount: number;        // 0–100
+  hSync: number;              // 0–100 horizontal sync
+  luma: number;               // 0–100 washout
+  saturation: number;         // 50–200
+  tapeSpeed: 'SP' | 'LP' | 'EP';
+  rgbOffset: boolean;
+  rgbOffsetAmount: number;    // 1–20
+  blendOriginal: number;
+  static: number;             // 0–100
+}
+
+// Audio analysis data — passed to effects each frame when audio is active
+export interface AudioAnalysisData {
+  bass: number;         // 0–1  energy 0–200 Hz
+  mid: number;          // 0–1  energy 200–2000 Hz
+  treble: number;       // 0–1  energy 2000+ Hz
+  amplitude: number;    // 0–1  overall RMS amplitude
 }
 
 export interface CybersigilismParams {
@@ -119,7 +315,25 @@ export interface CybersigilismParams {
   glowSize: number;         // shadowBlur radius
 }
 
-export type EffectType = 'dither' | 'ascii' | 'brutalist' | 'cybersigilism' | 'thermal' | 'nightvision' | 'infrared' | 'pointcloud' | 'topo';
+export type EffectType =
+  | 'dither' | 'ascii' | 'brutalist' | 'cybersigilism'
+  | 'thermal' | 'nightvision' | 'infrared'
+  | 'pointcloud' | 'topo'
+  // New effects
+  | 'halftone' | 'matrix-rain' | 'dots' | 'contour'
+  | 'pixel-sort' | 'blockify' | 'threshold-effect' | 'edge-detection'
+  | 'crosshatch' | 'wave-lines' | 'noise-field' | 'voronoi' | 'vhs';
+
+export type EffectCategory = 'analog' | 'glitch' | 'art' | 'print' | 'structure' | 'sculpt';
+
+export const EFFECT_CATEGORIES: Record<EffectType, EffectCategory> = {
+  thermal: 'analog', nightvision: 'analog', infrared: 'analog', vhs: 'analog',
+  brutalist: 'glitch', 'pixel-sort': 'glitch', blockify: 'glitch',
+  ascii: 'art', cybersigilism: 'art', 'matrix-rain': 'art', 'wave-lines': 'art', 'noise-field': 'art',
+  dither: 'print', halftone: 'print', dots: 'print', crosshatch: 'print',
+  contour: 'structure', 'edge-detection': 'structure', 'threshold-effect': 'structure', topo: 'structure', voronoi: 'structure',
+  pointcloud: 'sculpt',
+};
 
 export interface ActiveEffect {
   id: string;
@@ -137,6 +351,19 @@ export interface EffectParams {
   infrared: import('./effects/infrared').InfraredParams;
   pointcloud: import('./effects/pointcloud').PointCloudParams;
   topo: import('./effects/topo').TopoParams;
+  halftone: HalftoneParams;
+  'matrix-rain': MatrixRainParams;
+  dots: DotsParams;
+  contour: ContourParams;
+  'pixel-sort': PixelSortParams;
+  blockify: BlockifyParams;
+  'threshold-effect': ThresholdEffectParams;
+  'edge-detection': EdgeDetectionParams;
+  crosshatch: CrosshatchParams;
+  'wave-lines': WaveLinesParams;
+  'noise-field': NoiseFieldParams;
+  voronoi: VoronoiParams;
+  vhs: VhsParams;
 }
 
 export interface Adjustments {
@@ -160,7 +387,7 @@ export interface Preset {
 export type AppMode = 'image' | 'video' | 'audio' | 'webcam';
 
 /** 6 visualizer modes, each with a distinct visual identity */
-export type VizMode = 'scope' | 'spectrum' | 'radial' | 'tunnel' | 'glitch' | 'chroma';
+export type VizMode = 'bars' | 'scope' | 'spectrogram' | 'rings' | 'mirror' | 'storm' | 'flux' | 'vortex' | 'attractor' | 'petals' | 'scape' | 'weave';
 
 export interface VisualizerParams {
   mode: VizMode;
